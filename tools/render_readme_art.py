@@ -93,6 +93,15 @@ put_compact(f, '2', 2)
 put_compact(f, '6', 7)
 show('YEAR "2 6"', f)
 
+# WiFi page "-57": 2-px minus bar at row 4 cols 0-1, 2-col gap, digits at
+# cols 4 and 8 with a 1-col space between them (displayWifiRssi layout)
+f = blank()
+f[4][0] = 1
+f[4][1] = 1
+put_compact(f, '5', 4)
+put_compact(f, '7', 8)
+show('WIFI "-57"', f)
+
 
 # ===== Day-name scroll (large 7x5 letters, marquee) =====
 # Parses largeChars directly from glyphFonts.h so mockups can never drift

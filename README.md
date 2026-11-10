@@ -186,18 +186,18 @@ Signal strength of the connected network. The page opens with a **fan build-up**
 After the build-up (~1.4 s) and a short hold, the live **RSSI in dBm** replaces the icon for the rest of the slot:
 
 ```
-   fan build-up           number "- 57"
+   fan build-up           number "-57"
 .....##.....        ............
 ...##..##...        ............
-..#......#..        .....######.
-....####....        .....#....#.
-...#....#...        .##..###.#..
+..#......#..        ....###.###.
+....####....        ....#.....#.
+...#....#...        ##..###..#..
 .....##.....        ......#..#..
-....#..#....        .....###.#..
+....#..#....        ....###..#..
 .....##.....        ............
 ```
 
-The minus is drawn as a short floating bar with a clear gap before the digits — the font's full-width dash glyph would otherwise fuse into the first digit. Readings weaker than −100 dBm (4 characters) drop the minus and just center the digits; the value is definitionally negative on this page.
+The minus is a short bar tucked against the left edge, followed by a 2-column gap before the digits — the font's full-width dash glyph would otherwise fuse into the first digit — and the two digits carry a 1-column space between them. Readings of −100 dBm or weaker drop the minus and just center the digits with the same spacing; the value is definitionally negative on this page.
 
 The timing knobs are `WIFI_BARS_MS` (350 ms per buildup step) and `WIFI_BARS_HOLD` (600 ms the full icon stays before the number). When WiFi is down this page doesn't run at all — the WiFi loss banner below takes over instead.
 

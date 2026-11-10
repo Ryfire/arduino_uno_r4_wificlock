@@ -1140,10 +1140,11 @@ void displayWifiRssi() {
     if (step > cap - 1) step = cap - 1;         // hold the full icon before the number
     memcpy(frame, WIFI_FAN[step], sizeof(frame));
   } else {
-    // Hand-placed readout: the 3-wide dash glyph sits flush against the
-    // next digit's filled left edge and the two fuse into one streak, so
-    // the minus is drawn as a 2-px bar with a 2-column breathing gap and
-    // the digits land in fixed cells to the right ("- 57").
+    // Hand-placed readout: the minus is a 2-px bar hugging the left edge
+    // (cols 0-1, row 4) — the 3-wide dash glyph would fuse with the next
+    // digit's filled edge into one streak. After a 2-column gap the digits
+    // land in fixed cells with a 1-column space between them: bar 0-1,
+    // gap 2-3, first digit 4-6, gap 7, second digit 8-10 ("-57").
     char buf[7];
     snprintf(buf, sizeof(buf), "%ld", wifiPageRssi);
     bool neg = (buf[0] == '-');
@@ -1151,17 +1152,19 @@ void displayWifiRssi() {
     int ndig = strlen(digits);
 
     if (neg && ndig <= 2) {
-      frame[4][1] = 1;                          // minus bar (glyph-middle row)
-      frame[4][2] = 1;
-      renderCompactChar(digits[0], 5);
-      if (ndig > 1) renderCompactChar(digits[1], 8);
+      frame[4][0] = 1;                          // minus bar (glyph-middle row)
+      frame[4][1] = 1;
+      for (int i = 0; i < ndig; i++) {
+        renderCompactChar(digits[i], 4 + i * 4); // fixed cells 4 and 8
+      }
     } else {
       // Wide reading (<= -100 dBm): no room for bar + gap; center the
-      // digits — the value is definitionally negative on this page.
-      int start = (12 - (ndig * 3 - 1)) / 2;
+      // digits with the same 1-column spacing — the value is
+      // definitionally negative on this page.
+      int start = (12 - (ndig * 4 - 1)) / 2;
       if (start < 0) start = 0;
       for (int i = 0; i < ndig; i++) {
-        renderCompactChar(digits[i], start + i * 3);
+        renderCompactChar(digits[i], start + i * 4);
       }
     }
   }
