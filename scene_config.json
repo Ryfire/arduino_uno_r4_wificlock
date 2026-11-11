@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "sequence": [
+    { "phase": "time",    "duration_ms": 7000, "enabled": true },
+    { "phase": "minutes", "duration_ms": 7000, "enabled": true },
+    { "phase": "date",    "duration_ms": 7000, "enabled": true },
+    { "phase": "year",    "duration_ms": 7000, "enabled": true },
+    { "phase": "day",     "duration_ms": 7000, "enabled": true },
+    { "phase": "wifi",    "duration_ms": 7000, "enabled": true },
+    { "phase": "eye",     "duration_ms": 7000, "enabled": true, "every_n_cycles": 5 }
+  ],
+  "scene_intro_ms": 2500,
+  "scene_style": 2,
+  "scene_map": [
+    { "scene": "night",   "from_hour": 21, "to_hour": 5 },
+    { "scene": "sunrise", "from_hour": 5,  "to_hour": 7 },
+    { "scene": "morning", "from_hour": 7,  "to_hour": 11 },
+    { "scene": "day",     "from_hour": 11, "to_hour": 17 },
+    { "scene": "sunset",  "from_hour": 17, "to_hour": 19 },
+    { "scene": "dusk",    "from_hour": 19, "to_hour": 21 }
+  ]
+}

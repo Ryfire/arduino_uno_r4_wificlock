@@ -5,9 +5,10 @@
  * - NTP-synced real time with automatic US daylight-saving changes
  * - Non-blocking WiFi reconnect: retries forever with backoff
  * - NTP retry backoff + server rotation; clock keeps running offline
- * - Display cycle: time (7s) -> large minutes (7s) -> date (7s) -> year (7s)
- *   -> day-name scroll (7s) -> wifi signal (7s); a periodic eyeball
- *   animation every Nth cycle
+ * - Display cycle: sequence order, per-page durations and the scene
+ *   schedule are configurable via scene_config.json (defaults: time ->
+ *   large minutes -> date -> year -> day-name scroll -> wifi signal, 7 s
+ *   each, plus a periodic eyeball animation every Nth cycle)
  * - Optional 24-hour format; timezone configured in secrets.h
  * - State machine: INITIALIZING -> TIME_DISPLAY -> ERROR_DISPLAY
  *
@@ -32,6 +33,11 @@
 #else
   #include "secrets.example.h"
 #endif
+// Display sequence (order/durations/on-off) and the scene schedule come from
+// scene_config.h — GENERATED from scene_config.json by
+// tools/generate_scene_config.py, which runs automatically before every
+// build (see platformio.ini). Edit the JSON, never this file's twin.
+#include "scene_config.h"
 
 // ===== WiFi Configuration =====
 const char* ssid = WIFI_SSID;
@@ -91,7 +97,8 @@ const char* password = WIFI_PASSWORD;
 
 const unsigned long NTP_OK_INTERVAL = 60000;    // regular sync cadence (ms)
 const unsigned long STALE_SYNC_MS = 3600000UL;  // no sync for 1h => indicator
-const unsigned long PHASE_INTERVAL = 7000;      // seconds per display phase
+// Per-phase durations come from SCENE_SEQUENCE[] in scene_config.h
+// (generated from scene_config.json — edit there, not here).
 const unsigned long DATE_FLIP_MS = 350;         // month <-> day swap on date page
 const unsigned long DATE_DROP_MS = 70;          // date entrance: ms per fall row
 const unsigned long DATE_HOLD_MS = 3000;        // date entrance: month alone before flipping
@@ -110,30 +117,22 @@ const unsigned long WARN_X_ON_MS = 450;         // banner: X visible per flash
 const unsigned long WARN_X_OFF_MS = 250;        // banner: dark gap between flashes
 const int WARN_X_FLASHES = 3;                   // banner: flashes before the marquee
 const unsigned long WARN_SCROLL_MS = 90;        // banner: ms per marquee column
-const int EYE_EVERY_N_CYCLES = 5;               // eye plays every Nth cycle (0 = off)
 const unsigned long WIFI_CONNECT_TIMEOUT = 15000; // per-attempt timeout (ms)
 
 // ===== Time-of-day scene intro (TIME page) =====
 // A short vignette plays at the start of every TIME visit before the clock
 // is revealed. SCENE_STYLE picks the flavor (override in secrets.h):
-//   2 = animated scenes (default) | 1 = static image art | 0 = no intro
+//   2 = animated scenes | 1 = static image art | 0 = no intro
 // SCENE_FORCE is the bench-preview hook: -1 follows the clock's hour,
 // 0-5 forces one scene, 6 cycles all six per visit.
+// SCENE_INTRO_MS, the style default, and the hour->scene schedule all live
+// in scene_config.h (generated from scene_config.json).
 #ifndef SCENE_STYLE
-#define SCENE_STYLE 2
+#define SCENE_STYLE CONFIG_SCENE_STYLE_DEFAULT
 #endif
-const unsigned long SCENE_INTRO_MS = 2500;   // scene length within the 7 s slot
 #ifndef SCENE_FORCE
 #define SCENE_FORCE -1
 #endif
-// Bucket boundaries: each constant is the first hour of the NEXT bucket;
-// night wraps midnight (21:00-04:59).
-const int SCENE_NIGHT_END = 5;      // 00:00-04:59 -> night
-const int SCENE_SUNRISE_END = 7;    // 05:00-06:59 -> sunrise
-const int SCENE_MORNING_END = 11;   // 07:00-10:59 -> morning
-const int SCENE_DAY_END = 17;       // 11:00-16:59 -> day
-const int SCENE_SUNSET_END = 19;    // 17:00-18:59 -> sunset
-const int SCENE_DUSK_END = 21;      // 19:00-20:59 -> dusk (21:00+ -> night)
 
 // Day names for the scroll page, indexed by day-of-week (0 = Sunday).
 // Epoch days map directly: (days + 4) % 7 -> 1970-01-01 was a Thursday.
@@ -362,7 +361,8 @@ unsigned long lastScrollTick = 0;
 // ===== Eye animation state =====
 enum EyePose { EYE_CENTER, EYE_LEFT, EYE_RIGHT, EYE_BLINK };
 // Two eyes: center rest, look left/right, then blink once. The show
-// loops for the whole 7 s phase every EYE_EVERY_N_CYCLES-th cycle.
+// loops for the whole phase; the page plays every Nth cycle (eye step's
+// every_n_cycles in scene_config.json).
 const uint8_t EYE_SEQ[] = {
   EYE_CENTER, EYE_LEFT, EYE_RIGHT, EYE_CENTER,
   EYE_BLINK, EYE_CENTER
@@ -853,54 +853,82 @@ void renderFrame() {
 }
 
 // ===== STATE HANDLER: Time Display =====
-void advancePhase(int phases) {
-  if (millis() - lastPhaseToggle >= PHASE_INTERVAL) {
-    lastPhaseToggle = millis();
-    DisplayPhase next = (DisplayPhase)((displayPhase + 1) % phases);
+// The rotation walks SCENE_SEQUENCE[] (scene_config.h): next enabled step,
+// each held for its own duration. With only one step enabled the display
+// simply pins to it.
+uint8_t sequenceIndex = 0;   // index into SCENE_SEQUENCE[]
 
-    // The eye is a periodic page: only run it every Nth cycle. The count
-    // still increments on the skip, so "every 5th cycle" holds.
-    if (next == PHASE_EYE) {
-      cycleCount++;
-      if (EYE_EVERY_N_CYCLES > 0 && cycleCount % EYE_EVERY_N_CYCLES != 0) {
-        next = PHASE_TIME;
-      }
+uint8_t stepIndexFor(DisplayPhase phase) {
+  for (uint8_t i = 0; i < SCENE_SEQUENCE_LEN; i++) {
+    if (SCENE_SEQUENCE[i].phase == (uint8_t)phase && SCENE_SEQUENCE[i].enabled) return i;
+  }
+  return 0;   // config validation guarantees at least one enabled step
+}
+
+void advancePhase() {
+  if (millis() - lastPhaseToggle < SCENE_SEQUENCE[sequenceIndex].durationMs) return;
+  lastPhaseToggle = millis();
+
+  // Next enabled step in schedule order (wrap-around; stays put if the
+  // current step is the only enabled one).
+  uint8_t nextIdx = sequenceIndex;
+  for (uint8_t i = 1; i <= SCENE_SEQUENCE_LEN; i++) {
+    uint8_t idx = (sequenceIndex + i) % SCENE_SEQUENCE_LEN;
+    if (SCENE_SEQUENCE[idx].enabled) {
+      nextIdx = idx;
+      break;
     }
+  }
+  if (nextIdx == sequenceIndex) return;
 
-    if (next != displayPhase) {
-      // Day-scroll marquees itself in; the date page falls in on its own
-      // (see displayDate), so neither of those uses the column wipe.
-      if (next != PHASE_DAY && next != PHASE_DATE) {
-        startSweep();
-      }
-      displayPhase = next;
-      if (next == PHASE_DATE) {
-        dateEntranceStart = millis();   // restart the fall -> hold -> flip clock
-      }
-      if (next == PHASE_DAY) {
-        scrollPos = 0;
-        lastScrollTick = millis();
-        buildDayScroll(dayNames[getDayOfWeek()]);   // fresh day name on entry
-      }
-      if (next == PHASE_EYE) {
-        eyeStep = 0;
-        lastEyeStep = millis();
-      }
-      if (next == PHASE_WIFI) {
-        wifiPageStart = millis();
-        wifiPageRssi = WiFi.RSSI();   // one snapshot per visit; the number stays steady
-      }
-      if (next == PHASE_TIME) {
-        sceneStart = millis();        // scene intro plays before the clock
-        sceneRevealed = false;
-        sceneKind = pickScene();      // bucket by hour (or SCENE_FORCE)
-      }
+  DisplayPhase next = (DisplayPhase)SCENE_SEQUENCE[nextIdx].phase;
+
+  // The eye is a periodic page: only run it every Nth cycle. The count
+  // still increments on the skip, so "every 5th cycle" holds. A skipped
+  // eye falls back to the TIME page, whose duration then applies.
+  if (next == PHASE_EYE) {
+    cycleCount++;
+    uint8_t everyN = SCENE_SEQUENCE[nextIdx].everyNCycles;
+    if (everyN == 0 || cycleCount % everyN != 0) {
+      next = PHASE_TIME;
+      nextIdx = stepIndexFor(PHASE_TIME);
+    }
+  }
+
+  if (next != displayPhase) {
+    // Day-scroll marquees itself in; the date page falls in on its own
+    // (see displayDate), so neither of those uses the column wipe.
+    if (next != PHASE_DAY && next != PHASE_DATE) {
+      startSweep();
+    }
+    sequenceIndex = nextIdx;
+    displayPhase = next;
+    if (next == PHASE_DATE) {
+      dateEntranceStart = millis();   // restart the fall -> hold -> flip clock
+    }
+    if (next == PHASE_DAY) {
+      scrollPos = 0;
+      lastScrollTick = millis();
+      buildDayScroll(dayNames[getDayOfWeek()]);   // fresh day name on entry
+    }
+    if (next == PHASE_EYE) {
+      eyeStep = 0;
+      lastEyeStep = millis();
+    }
+    if (next == PHASE_WIFI) {
+      wifiPageStart = millis();
+      wifiPageRssi = WiFi.RSSI();   // one snapshot per visit; the number stays steady
+    }
+    if (next == PHASE_TIME) {
+      sceneStart = millis();        // scene intro plays before the clock
+      sceneRevealed = false;
+      sceneKind = pickScene();      // bucket by hour (or SCENE_FORCE)
     }
   }
 }
 
 void renderDisplayPhase() {
-  advancePhase(7);
+  advancePhase();
 
   int hours = timeClient.getHours();    // timezone/DST offset applied
   int minutes = timeClient.getMinutes();
@@ -1025,13 +1053,11 @@ void clearDisplay() {
 // shares the ground line on row 7.
 
 SceneKind sceneForHour(int hours) {
-  if (hours < SCENE_NIGHT_END) return SCENE_NIGHT;
-  if (hours < SCENE_SUNRISE_END) return SCENE_SUNRISE;
-  if (hours < SCENE_MORNING_END) return SCENE_MORNING;
-  if (hours < SCENE_DAY_END) return SCENE_DAY;
-  if (hours < SCENE_SUNSET_END) return SCENE_SUNSET;
-  if (hours < SCENE_DUSK_END) return SCENE_DUSK;
-  return SCENE_NIGHT;              // 21:00+ wraps back to night
+  // The schedule is a flat 24-entry lookup generated from scene_config.json
+  // (SCENE_HOUR_MAP in scene_config.h); night wraps midnight via the map.
+  int8_t mapped = SCENE_HOUR_MAP[hours % 24];
+  if (mapped < 0) return SCENE_NIGHT;   // defensive: schedule gap -> night
+  return (SceneKind)mapped;
 }
 
 SceneKind pickScene() {

@@ -1,0 +1,249 @@
+#!/usr/bin/env python3
+"""Generate include/scene_config.h from scene_config.json.
+
+scene_config.json (repo root) is the source of truth for the clock's
+display sequence (order, durations, on/off), the scene intro length and
+style default, and the hour -> scene schedule. This script validates it
+and emits the C++ table the firmware walks.
+
+Runs automatically before every PlatformIO build (see platformio.ini
+`extra_scripts = pre:...`) and can also be run by hand:
+
+    python tools/generate_scene_config.py
+    python tools/generate_scene_config.py --json other.json --out other.h
+
+The output is written only when its content changes, so untouched configs
+do not trigger spurious rebuilds.
+"""
+
+import argparse
+import json
+import os
+import sys
+
+def project_root():
+    """Repo root, resolved lazily: PlatformIO execs this file as a pre-script
+    WITHOUT __file__ (it runs in the caller's globals), so fall back to the
+    build environment's PROJECT_DIR, then the cwd."""
+    path = globals().get("__file__")
+    if path:
+        return os.path.dirname(os.path.dirname(os.path.abspath(path)))
+    env = globals().get("env")
+    if env is not None and env.get("PROJECT_DIR"):
+        return env["PROJECT_DIR"]
+    return os.getcwd()
+
+
+def default_json():
+    return os.path.join(project_root(), "scene_config.json")
+
+
+def default_out():
+    return os.path.join(project_root(), "include", "scene_config.h")
+
+# Phase names allowed in sequence steps -> generated enum ids (order must
+# match the DisplayPhase enum in src/main.cpp).
+PHASES = ["time", "minutes", "date", "year", "day", "wifi", "eye"]
+PHASE_ENUM = {p: "GEN_PHASE_" + p.upper() for p in PHASES}
+
+# Scene names allowed in scene_map entries -> index used by SceneKind in
+# src/main.cpp (order must match the SceneKind enum).
+SCENES = ["night", "sunrise", "morning", "day", "sunset", "dusk"]
+
+MIN_DURATION_MS = 500
+MAX_DURATION_MS = 3600000
+
+
+class ConfigError(Exception):
+    """User-facing validation error: message points at the offending field."""
+
+
+def fail(msg):
+    raise ConfigError(msg)
+
+
+def as_bool(value, where):
+    if not isinstance(value, bool):
+        fail("%s must be true or false" % where)
+    return value
+
+
+def as_int(value, where, lo, hi):
+    if isinstance(value, bool) or not isinstance(value, int):
+        fail("%s must be an integer" % where)
+    if not lo <= value <= hi:
+        fail("%s must be between %d and %d (got %d)" % (where, lo, hi, value))
+    return value
+
+
+def load_config(path):
+    try:
+        with open(path, "r", encoding="utf-8-sig") as fh:
+            return json.load(fh)
+    except FileNotFoundError:
+        fail("config not found: %s" % path)
+    except json.JSONDecodeError as exc:
+        fail("%s is not valid JSON: %s (line %d)" % (path, exc.msg, exc.lineno))
+
+
+def validate_sequence(cfg):
+    steps = cfg.get("sequence")
+    if not isinstance(steps, list) or not steps:
+        fail("'sequence' must be a non-empty list of steps")
+    seen = set()
+    for i, step in enumerate(steps):
+        where = "sequence[%d]" % i
+        if not isinstance(step, dict):
+            fail("%s must be an object" % where)
+        phase = step.get("phase")
+        if phase not in PHASES:
+            fail("%s.phase must be one of: %s (got %r)"
+                 % (where, ", ".join(PHASES), phase))
+        if phase in seen:
+            fail("%s: phase %r appears more than once" % (where, phase))
+        seen.add(phase)
+        step["duration_ms"] = as_int(step.get("duration_ms"), where + ".duration_ms",
+                                     MIN_DURATION_MS, MAX_DURATION_MS)
+        step["enabled"] = as_bool(step.get("enabled", True), where + ".enabled")
+        if phase == "eye":
+            step["every_n_cycles"] = as_int(step.get("every_n_cycles", 5),
+                                            where + ".every_n_cycles", 0, 100)
+        elif "every_n_cycles" in step:
+            fail("%s: 'every_n_cycles' is only valid on the 'eye' phase" % where)
+    if not any(step["enabled"] for step in steps):
+        fail("'sequence' must have at least one enabled step")
+    return steps
+
+
+def validate_scene_globals(cfg):
+    intro = as_int(cfg.get("scene_intro_ms", 2500), "scene_intro_ms", 0, 60000)
+    style = as_int(cfg.get("scene_style", 2), "scene_style", 0, 2)
+    return intro, style
+
+
+def build_hour_map(cfg):
+    """Merge scene_map ranges into a 24-entry hour -> scene index table."""
+    scene_map = cfg.get("scene_map")
+    if not isinstance(scene_map, list) or not scene_map:
+        fail("'scene_map' must be a non-empty list of ranges")
+    hour_map = [-1] * 24
+    for i, entry in enumerate(scene_map):
+        where = "scene_map[%d]" % i
+        if not isinstance(entry, dict):
+            fail("%s must be an object" % where)
+        scene = entry.get("scene")
+        if scene not in SCENES:
+            fail("%s.scene must be one of: %s (got %r)"
+                 % (where, ", ".join(SCENES), scene))
+        from_hour = as_int(entry.get("from_hour"), where + ".from_hour", 0, 23)
+        to_hour = as_int(entry.get("to_hour"), where + ".to_hour", 0, 24)
+        count = (to_hour - from_hour) % 24
+        if count == 0:
+            fail("%s covers zero hours (from_hour == to_hour)" % where)
+        for offset in range(count):
+            hour = (from_hour + offset) % 24
+            if hour_map[hour] != -1:
+                fail("%s: hour %d:00 is already claimed by another range"
+                     % (where, hour))
+            hour_map[hour] = SCENES.index(scene)
+    gaps = [h for h, s in enumerate(hour_map) if s == -1]
+    if gaps:
+        fail("scene_map leaves hours uncovered: %s"
+             % ", ".join("%d:00" % h for h in gaps))
+    return hour_map
+
+
+def render_header(steps, intro_ms, style, hour_map):
+    lines = []
+    lines.append("// GENERATED FILE — do not edit.")
+    lines.append("// Source of truth: scene_config.json (repo root). Edit it by hand or via")
+    lines.append("// tools/studio/index.html; `pio run` regenerates this file automatically")
+    lines.append("// (tools/generate_scene_config.py runs as a PlatformIO pre-build script).")
+    lines.append("#pragma once")
+    lines.append("")
+    lines.append("#include <Arduino.h>")
+    lines.append("")
+    lines.append("// Display phase ids; order must match the DisplayPhase enum in src/main.cpp.")
+    lines.append("enum GeneratedPhase : uint8_t {")
+    for phase in PHASES:
+        lines.append("  %s," % PHASE_ENUM[phase])
+    lines.append("};")
+    lines.append("")
+    lines.append("// One step of the display rotation: what shows, for how long, whether it")
+    lines.append("// plays at all. everyNCycles is only used by the eye phase (0 = never).")
+    lines.append("struct PhaseStep {")
+    lines.append("  uint8_t phase;")
+    lines.append("  unsigned long durationMs;")
+    lines.append("  bool enabled;")
+    lines.append("  uint8_t everyNCycles;")
+    lines.append("};")
+    lines.append("")
+    lines.append("const PhaseStep SCENE_SEQUENCE[] = {")
+    for step in steps:
+        lines.append("  { %-19s %6lu, %-5s %d },   // %s"
+                     % (PHASE_ENUM[step["phase"]] + ",",
+                        step["duration_ms"],
+                        ("true" if step["enabled"] else "false") + ",",
+                        step.get("every_n_cycles", 0),
+                        step["phase"]))
+    lines.append("};")
+    lines.append("const uint8_t SCENE_SEQUENCE_LEN = sizeof(SCENE_SEQUENCE) / sizeof(SCENE_SEQUENCE[0]);")
+    lines.append("")
+    lines.append("// Scene intro length within the TIME step (ms).")
+    lines.append("const unsigned long SCENE_INTRO_MS = %lu;" % intro_ms)
+    lines.append("// Default scene flavor; a SCENE_STYLE define in secrets.h still wins.")
+    lines.append("#ifndef CONFIG_SCENE_STYLE_DEFAULT")
+    lines.append("#define CONFIG_SCENE_STYLE_DEFAULT %d" % style)
+    lines.append("#endif")
+    lines.append("")
+    lines.append("// hour (0-23) -> scene index: %s." % " ".join(
+        "%d=%s" % (i, s) for i, s in enumerate(SCENES)))
+    lines.append("const int8_t SCENE_HOUR_MAP[24] = {")
+    for start in range(0, 24, 12):
+        lines.append("  " + ", ".join(str(hour_map[h]) for h in range(start, start + 12)) + ",")
+    lines.append("};")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def generate(json_path, out_path):
+    cfg = load_config(json_path)
+    steps = validate_sequence(cfg)
+    intro_ms, style = validate_scene_globals(cfg)
+    hour_map = build_hour_map(cfg)
+    content = render_header(steps, intro_ms, style, hour_map)
+
+    if os.path.exists(out_path):
+        with open(out_path, "r", encoding="utf-8") as fh:
+            if fh.read() == content:
+                return False  # unchanged: no rebuild churn
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    with open(out_path, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(content)
+    return True
+
+
+def run(config_path, out_path, verbose):
+    try:
+        changed = generate(config_path, out_path)
+    except ConfigError as exc:
+        # Readable error for both direct runs and pre-build failures.
+        print("scene_config error: %s" % exc, file=sys.stderr)
+        sys.exit(1)
+    if verbose:
+        print(("wrote %s" % out_path) if changed else ("%s up to date" % out_path))
+
+
+if globals().get("__name__", "") == "__main__":
+    # Standalone: allow overriding paths; argparse is unsafe in the SCons
+    # pre-script context (sys.argv belongs to the build tool there).
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--json", default=default_json(), help="config JSON (default: scene_config.json)")
+    parser.add_argument("--out", default=default_out(), help="output header (default: include/scene_config.h)")
+    _args = parser.parse_args()
+    run(_args.json, _args.out, verbose=True)
+else:
+    # Exec'd by PlatformIO as a pre-build script: generate with defaults.
+    # globals().get (not a bare __name__ reference) keeps this safe even if
+    # the exec namespace omits __name__ entirely.
+    run(default_json(), default_out(), verbose=False)
