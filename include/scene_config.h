@@ -18,22 +18,36 @@ enum GeneratedPhase : uint8_t {
 };
 
 // One step of the display rotation: what shows, for how long, whether it
-// plays at all. everyNCycles is only used by the eye phase (0 = never).
+// plays at all, plus the page-INTERNAL animation timing (detail fields
+// apply only to their own phase; unused ones stay 0).
+// everyNCycles is only used by the eye phase (0 = never).
 struct PhaseStep {
   uint8_t phase;
   unsigned long durationMs;
   bool enabled;
   uint8_t everyNCycles;
+  unsigned int blinkMs;     // time: colon blink / eye: closed-lid
+  unsigned int holdMs;      // date: month alone before flipping
+  unsigned int monthMs;    // date: month state in the flip
+  unsigned int slashMs;    // date: '/' divider state
+  unsigned int dayMs;      // date: day state (the useful half)
+  unsigned int scrollMs;    // day: marquee speed
+  unsigned int stepMs;      // eye: pose hold per step
+  unsigned int barsMs;      // wifi: fan build-up per step
+  unsigned int barsHoldMs;  // wifi: full-icon hold before the number
+  unsigned int countMs;     // wifi: dBm count-up
+  unsigned int numMs;       // wifi: number hold between pulses
+  unsigned int pulseMs;     // wifi: fan re-pulse
 };
 
 const PhaseStep SCENE_SEQUENCE[] = {
-  { GEN_PHASE_TIME,       7000, true, 0 },   // time
-  { GEN_PHASE_MINUTES,    7000, true, 0 },   // minutes
-  { GEN_PHASE_DATE,       7000, true, 0 },   // date
-  { GEN_PHASE_YEAR,       7000, true, 0 },   // year
-  { GEN_PHASE_DAY,        7000, true, 0 },   // day
-  { GEN_PHASE_WIFI,       7000, true, 0 },   // wifi
-  { GEN_PHASE_EYE,        7000, true, 5 },   // eye
+  { GEN_PHASE_TIME,       7000, true,  0, 1000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },   // time
+  { GEN_PHASE_MINUTES,    7000, true,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },   // minutes
+  { GEN_PHASE_DATE,       7000, true,  0, 0, 2000, 600, 300, 900, 0, 0, 0, 0, 0, 0, 0 },   // date
+  { GEN_PHASE_YEAR,       7000, true,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },   // year
+  { GEN_PHASE_DAY,        7000, true,  0, 0, 0, 0, 0, 0, 90, 0, 0, 0, 0, 0, 0 },   // day
+  { GEN_PHASE_WIFI,       7000, true,  0, 0, 0, 0, 0, 0, 0, 0, 350, 600, 900, 1600, 500 },   // wifi
+  { GEN_PHASE_EYE,        7000, true,  5, 400, 0, 0, 0, 0, 0, 700, 0, 0, 0, 0, 0 },   // eye
 };
 const uint8_t SCENE_SEQUENCE_LEN = sizeof(SCENE_SEQUENCE) / sizeof(SCENE_SEQUENCE[0]);
 

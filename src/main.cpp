@@ -99,20 +99,13 @@ const unsigned long NTP_OK_INTERVAL = 60000;    // regular sync cadence (ms)
 const unsigned long STALE_SYNC_MS = 3600000UL;  // no sync for 1h => indicator
 // Per-phase durations come from SCENE_SEQUENCE[] in scene_config.h
 // (generated from scene_config.json — edit there, not here).
-const unsigned long DATE_FLIP_MS = 350;         // month <-> day swap on date page
+// Per-phase durations and page-INTERNAL animation timing (flip rate, scroll
+// speed, wifi pacing, ...) come from SCENE_SEQUENCE[] in scene_config.h
+// (generated from scene_config.json — edit there, not here).
 const unsigned long DATE_DROP_MS = 70;          // date entrance: ms per fall row
-const unsigned long DATE_HOLD_MS = 3000;        // date entrance: month alone before flipping
 const int DATE_FALL_TOP = 5;                    // date entrance: fall starts this many rows above the matrix
 const int COMPACT_ROW_OFFSET = 2;               // compact glyphs rest at frame rows 2-6
-const unsigned long DAY_SCROLL_MS = 90;         // day-name scroll: ms per column
 const unsigned long SWEEP_MS = 40;              // phase transition: ms per column of the wipe
-const unsigned long EYE_STEP_MS = 700;          // eye animation: ms per pose
-const unsigned long EYE_BLINK_MS = 400;         // eye animation: closed-lid duration
-const unsigned long WIFI_BARS_MS = 350;         // wifi page: ms per fan-buildup step
-const unsigned long WIFI_BARS_HOLD = 600;       // wifi page: full-icon hold before the number
-const unsigned long WIFI_COUNT_MS = 900;        // wifi page: dBm count-up when the number appears
-const unsigned long WIFI_NUM_MS = 1600;         // wifi page: number hold between fan pulses
-const unsigned long WIFI_PULSE_MS = 500;        // wifi page: quick fan re-pulse between holds
 const unsigned long WARN_X_ON_MS = 450;         // banner: X visible per flash
 const unsigned long WARN_X_OFF_MS = 250;        // banner: dark gap between flashes
 const int WARN_X_FLASHES = 3;                   // banner: flashes before the marquee
@@ -411,8 +404,20 @@ void displayNoWifiWarning();
 int packMarquee(const char* text, uint8_t* buf, int bufSize);
 void renderFrame();
 void startSweep();
+// The enabled step showing a phase from the compiled table (NULL if none —
+// shouldn't happen with a validated config). Display functions read their
+// page-INTERNAL animation timing (flip rate, scroll speed, wifi pacing, ...)
+// from this.
+const PhaseStep* stepFor(uint8_t phase) {
+  for (uint8_t i = 0; i < SCENE_SEQUENCE_LEN; i++) {
+    if (SCENE_SEQUENCE[i].phase == phase && SCENE_SEQUENCE[i].enabled)
+      return &SCENE_SEQUENCE[i];
+  }
+  return nullptr;
+}
 void stampCompactGlyph(char c, int startCol, int rowOffset);
 void drawDatePair(int value, int rowOffset);
+void drawSlash();
 int getDayOfWeek();
 void buildDayScroll(const char* name);
 void clearDisplay();
@@ -955,7 +960,8 @@ void renderDisplayPhase() {
         startSweep();   // prevFrame = last scene render -> clock wipes in
       }
 #endif
-      if (millis() - lastBlinkTime >= 1000) {
+      const PhaseStep* tcfg = stepFor(GEN_PHASE_TIME);
+      if (millis() - lastBlinkTime >= (tcfg ? tcfg->blinkMs : 1000)) {
         colonVisible = !colonVisible;
         lastBlinkTime = millis();
       }
@@ -1314,9 +1320,12 @@ void displayMinutesLarge(int minutes) {
 // Date page, three stages driven by one entrance clock (set on each visit):
 //   1. Fall: the month pair drops from above the top edge, one row per
 //      DATE_DROP_MS, until it lands in the compact resting position.
-//   2. Hold: the month alone for DATE_HOLD_MS.
-//   3. Flip: month <-> day every DATE_FLIP_MS, phase-anchored to the end
-//      of the hold, so no flip state survives between visits.
+//   2. Hold: the month alone for the step's hold_ms.
+//   3. Flip: a 4-state cycle - month, '/', day, '/' - phase-anchored to the
+//      end of the hold, so no flip state survives between visits. The slash
+//      divider is the "you are here" marker: whatever follows a slash is the
+//      day number, keeping the halves distinguishable even when equal
+//      (11/11, 1/1, ...) where a plain 2-state flip draws identical pixels.
 // The two pairs can't fit side by side at full size, so both halves reuse
 // the same centered slots the year page uses.
 void displayDate() {
@@ -1326,6 +1335,12 @@ void displayDate() {
   int64_t days = (int64_t)timeClient.getEpochTime() / 86400;
   int y, m, d;
   epochToDate(days, y, m, d);
+
+  const PhaseStep* step = stepFor(GEN_PHASE_DATE);
+  unsigned long holdMs = step ? step->holdMs : 2000;
+  unsigned long monthMs = step ? step->monthMs : 600;
+  unsigned long slashMs = step ? step->slashMs : 300;
+  unsigned long dayMs = step ? step->dayMs : 900;
 
   unsigned long el = millis() - dateEntranceStart;
   unsigned long fallMs = (unsigned long)(DATE_FALL_TOP + COMPACT_ROW_OFFSET) * DATE_DROP_MS;
@@ -1340,19 +1355,45 @@ void displayDate() {
     return;
   }
 
-  // Stage 2: the month alone, holding for DATE_HOLD_MS
-  if (el < fallMs + DATE_HOLD_MS) {
+  // Stage 2: the month alone, holding for the step's hold_ms
+  if (el < fallMs + holdMs) {
     drawDatePair(m, COMPACT_ROW_OFFSET);
     drawIndicators();
     renderFrame();
     return;
   }
 
-  // Stage 3: the regular month <-> day flip
-  bool showMonth = ((el - fallMs - DATE_HOLD_MS) / DATE_FLIP_MS) % 2 == 0;
-  drawDatePair(showMonth ? m : d, COMPACT_ROW_OFFSET);
+  // Stage 3: the 4-state flip: month -> '/' -> day -> '/' -> (repeat)
+  unsigned long cycle = monthMs + slashMs + dayMs + slashMs;
+  unsigned long t = (el - fallMs - holdMs) % cycle;
+  if (t < monthMs) {
+    drawDatePair(m, COMPACT_ROW_OFFSET);         // month
+  } else if (t < monthMs + slashMs) {
+    drawSlash();                                  // divider
+  } else if (t < monthMs + slashMs + dayMs) {
+    drawDatePair(d, COMPACT_ROW_OFFSET);         // day
+  } else {
+    drawSlash();                                  // divider
+  }
   drawIndicators();
   renderFrame();
+}
+
+// The flip divider: a '/' diagonal in the gap between the two digit slots
+// (cols 4-7, rows 2-5; the indicator dots above at rows 0-1 don't collide).
+// Two pixels thick so it reads clearly at 12x8.
+void drawSlash() {
+  static const uint8_t slash[8][12] = {
+    {0,0,0,0,0,0,0,0,0,0,0,0},
+    {0,0,0,0,0,0,0,0,0,0,0,0},
+    {0,0,0,0,0,0,1,1,0,0,0,0},
+    {0,0,0,0,0,1,1,0,0,0,0,0},
+    {0,0,0,0,1,1,0,0,0,0,0,0},
+    {0,0,0,1,1,0,0,0,0,0,0,0},
+    {0,0,0,0,0,0,0,0,0,0,0,0},
+    {0,0,0,0,0,0,0,0,0,0,0,0}
+  };
+  memcpy(frame, slash, sizeof(frame));
 }
 
 // The two-digit date pair in its centered slots (cols 2 and 7, mirroring
@@ -1436,7 +1477,9 @@ void buildDayScroll(const char* name) {
 // longest name, 73 ticks) takes ~6.6 s of the 7 s slot; shorter names finish
 // earlier and the display just sits blank for the remainder of the phase.
 void displayDayScroll() {
-  if (millis() - lastScrollTick >= DAY_SCROLL_MS) {
+  const PhaseStep* step = stepFor(GEN_PHASE_DAY);
+  unsigned long scrollMs = step ? step->scrollMs : 90;
+  if (millis() - lastScrollTick >= scrollMs) {
     lastScrollTick = millis();
     if (scrollPos < scrollLen - 12) scrollPos++;   // stop once the word has fully exited
   }
@@ -1496,7 +1539,7 @@ void renderRssiNumber(long value) {
   }
 }
 
-// The page plays the fan build-up (one arc per WIFI_BARS_MS, capped by
+// The page plays the fan build-up (one arc per the step's bars_ms, capped by
 // signal quality, then a full-icon hold), then the RSSI takes over for
 // the rest of the slot without ever sitting still: it first counts up
 // from -100 like a meter locking onto the signal, then alternates
@@ -1504,28 +1547,35 @@ void renderRssiNumber(long value) {
 void displayWifiRssi() {
   clearFrame();
 
+  const PhaseStep* cfg = stepFor(GEN_PHASE_WIFI);
+  unsigned long barsMs = cfg ? cfg->barsMs : 350;
+  unsigned long barsHoldMs = cfg ? cfg->barsHoldMs : 600;
+  unsigned long countMs = cfg ? cfg->countMs : 900;
+  unsigned long numMs = cfg ? cfg->numMs : 1600;
+  unsigned long pulseMs = cfg ? cfg->pulseMs : 500;
+
   unsigned long elapsed = millis() - wifiPageStart;
   int cap = wifiRssiSteps((int)wifiPageRssi);
-  unsigned long buildMs = (unsigned long)cap * WIFI_BARS_MS + WIFI_BARS_HOLD;
+  unsigned long buildMs = (unsigned long)cap * barsMs + barsHoldMs;
 
   if (elapsed < buildMs) {
-    int step = (int)(elapsed / WIFI_BARS_MS);   // 0 .. cap-1
+    int step = (int)(elapsed / barsMs);   // 0 .. cap-1
     if (step > cap - 1) step = cap - 1;         // hold the full icon before the number
     memcpy(frame, WIFI_FAN[step], sizeof(frame));
   } else {
     unsigned long t = elapsed - buildMs;
 
-    if (t < WIFI_COUNT_MS) {
+    if (t < countMs) {
       // Count-up: -100 (no signal) climbs to the real reading.
-      long shown = -100L + (wifiPageRssi + 100L) * (long)t / (long)WIFI_COUNT_MS;
+      long shown = -100L + (wifiPageRssi + 100L) * (long)t / (long)countMs;
       renderRssiNumber(shown);
     } else {
-      unsigned long seg = (t - WIFI_COUNT_MS) % (WIFI_NUM_MS + WIFI_PULSE_MS);
-      if (seg < WIFI_NUM_MS) {
+      unsigned long seg = (t - countMs) % (numMs + pulseMs);
+      if (seg < numMs) {
         renderRssiNumber(wifiPageRssi);        // hold the real reading
       } else {
         // Quick fan re-pulse: a compressed rebuild between number holds.
-        int pstep = (int)((seg - WIFI_NUM_MS) / (WIFI_PULSE_MS / 4));
+        int pstep = (int)((seg - numMs) / (pulseMs / 4));
         if (pstep > 3) pstep = 3;
         if (pstep > cap - 1) pstep = cap - 1;
         memcpy(frame, WIFI_FAN[pstep], sizeof(frame));
@@ -1633,7 +1683,10 @@ void drawEyeLids() {
 }
 
 void displayEye() {
-  unsigned long stepMs = (EYE_SEQ[eyeStep] == EYE_BLINK) ? EYE_BLINK_MS : EYE_STEP_MS;
+  const PhaseStep* cfg = stepFor(GEN_PHASE_EYE);
+  unsigned long poseMs = cfg ? cfg->stepMs : 700;
+  unsigned long blinkMs = cfg ? cfg->blinkMs : 400;
+  unsigned long stepMs = (EYE_SEQ[eyeStep] == EYE_BLINK) ? blinkMs : poseMs;
   if (millis() - lastEyeStep >= stepMs) {
     lastEyeStep = millis();
     eyeStep++;

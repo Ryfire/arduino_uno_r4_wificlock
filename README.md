@@ -10,6 +10,7 @@ A WiFi-enabled digital clock using the Arduino UNO R4 WiFi's built-in 8×12 LED 
 
 - **Real-Time Clock**: NTP-synced (3 fallback servers) with automatic **US daylight saving** (2nd Sun Mar → 1st Sun Nov) — never needs seasonal editing
 - **7-Page Rotating Display**: time → large minutes → date → year → day-name scroll → WiFi signal, each page held 7 seconds, plus a **two-eyed face** every 5th cycle
+- **JSON-Configurable Flow**: the page order, per-page durations, per-page animation timing (date flip cycle, scroll speed, WiFi pacing, eye timing), and the scene schedule live in `scene_config.json` — edit, rebuild, flash; no code changes needed
 - **Night Dimming**: the whole matrix instantly drops to 15% brightness at 22:00 and back to 100% at 06:00 — no ramp, DST-aware local time, all via `#ifndef` constants
 - **Sweep Transitions**: pages wipe in column-by-column from the right edge (~0.5 s) instead of hard-cuts; the date page drops its month in from the top instead
 - **Time-of-Day Scenes**: each visit to the time page opens with a short vignette matched to the hour — sunrise, morning, day, sunset, dusk, or a moonlit night — then wipes away to reveal the clock; animated by default, and `SCENE_STYLE` switches between animated, static art, or no intro at all
@@ -84,7 +85,7 @@ No include paths need editing — the sketch resolves its headers from the tab f
 
 ## How to Read the Display
 
-The matrix is 12 columns × 8 rows. The clock rotates through **seven pages**, each held **7 seconds**, in this order:
+The matrix is 12 columns × 8 rows. The clock rotates through **seven pages**, each held **7 seconds**, in this order (order, durations, and every page's internal animation timing are configurable — see [Customizing the Display](#customizing-the-display-scene_configjson)):
 
 ### 1. Time page (7 s)
 
@@ -164,23 +165,24 @@ The current minutes in **large full-height digits**. This is the only page with 
 .###....###.
 ```
 
-### 3. Date page (7 s) — drop-in month, then alternating flip
+### 3. Date page (7 s) — drop-in month, then a slash-divider flip
 
-The page opens with a **drop-in entrance**: on a dark screen, the month pair falls from above the top edge — one row every 70 ms — and lands in the centered slots. It sits alone for **3 seconds**, and only then does the regular month ↔ day flip begin, trading places every 350 ms:
+The page opens with a **drop-in entrance**: on a dark screen, the month pair falls from above the top edge — one row every 70 ms — and lands in the centered slots. It sits alone for **2 seconds**, and only then does the flip begin — a **4-state cycle** where a slash divider marks the transition, so you always know which half you're looking at (what follows a `/` is always the day number — even on equal dates like 11/11, where a plain two-state flip would draw identical pixels):
 
 ```
-   falling in             landed, holds 3 s
-...#....#..              ............
-..##...##..              ............
-...#....#..              ...#....#..
-...#....#..              ..##...##..
-..###..###..             ...#....#..
-............             ...#....#..
-............             ..###..###..
-............             ............
+   falling in       landed, holds 2 s      the flip: month / day / ...
+...#....#..         ............         ...#....#..  ......      ...#....#..
+..##...##..         ............         ......         ......    ......    
+...#....#..         ...#....#..          ...#....#..  ....#..#..  ......    
+...#....#..         ..##...##..          ..##...##..  .....##..... ..##...##..
+..###..###..        ...#....#..          ...#....#..  ....#..#..  ...#....#..
+............        ...#....#..          ............  ......     ............
+............        ..###..###..         ..###..###..             ..###..###..
+............        ............         ............             ............
+                       month                divider        day
 ```
 
-Both halves use the **same full-size digits as the time page**, at the same centered position the year page uses — there are no shrunken glyphs anywhere. After the ~0.5 s fall and the 3 s month-only hold, each half gets ~5 looks during the rest of the slot, and the entrance replays on every visit to the page. Knobs: `DATE_DROP_MS` (fall speed), `DATE_HOLD_MS` (month-only hold), `DATE_FLIP_MS` (flip rate).
+Both halves use the **same full-size digits as the time page**, at the same centered position the year page uses — there are no shrunken glyphs anywhere. The slash is a two-pixel-wide diagonal drawn in the gap between the digit slots, below the indicator dots. Timings are configurable per page (see [Customizing the Display](#customizing-the-display-scene_configjson)): the month state 600 ms, the slash 300 ms, and the day 900 ms — the day number deliberately lingers longest, since it's the half you actually need.
 
 ### 4. Year page (7 s)
 
@@ -322,6 +324,40 @@ On every page change — except the day-name scroll (its marquee entrance is alr
 
 ---
 
+## Customizing the Display (`scene_config.json`)
+
+Everything about how the display flows lives in one file at the repo root — no C++ editing required:
+
+```json
+{
+  "version": 1,
+  "sequence": [
+    { "phase": "date", "duration_ms": 7000, "enabled": true,
+      "hold_ms": 2000, "month_ms": 600, "slash_ms": 300, "day_ms": 900 },
+    ...
+  ],
+  "scene_intro_ms": 2500,
+  "scene_style": 2,
+  "scene_map": [ { "scene": "night", "from_hour": 21, "to_hour": 5 }, ... ]
+}
+```
+
+- **`sequence`** — the rotation, in your order. Each step: `duration_ms` (how long the page holds, 500–3600000), `enabled` (skip pages you don't want), and the eye's `every_n_cycles`.
+- **Per-page detail timing** — each step also carries its own animation knobs:
+  | Phase | Fields (ms) |
+  |---|---|
+  | `time` | `blink_ms` — colon blink period |
+  | `date` | `hold_ms` (month alone), `month_ms` / `slash_ms` / `day_ms` (the flip cycle) |
+  | `day` | `scroll_ms` — marquee speed per column |
+  | `eye` | `step_ms` (pose hold), `blink_ms` (closed-lid) |
+  | `wifi` | `bars_ms`, `bars_hold_ms`, `count_ms`, `num_ms`, `pulse_ms` |
+- **`scene_map`** — which scene plays at which hour (night wraps past midnight: `from_hour: 21, to_hour: 5`); every hour must be covered, no overlaps.
+- **`scene_style`** — 2 = animated scenes (default), 1 = static art, 0 = no intro; a `SCENE_STYLE` define in `secrets.h` overrides it.
+
+**Workflow:** edit `scene_config.json` → `pio run` (a pre-build step validates the file and regenerates `include/scene_config.h`; errors point at the offending field) → `pio run --target upload` over USB. The generated header is committed, so Arduino IDE builds work too — the JSON just wins after any PlatformIO build.
+
+---
+
 ## How to Use It
 
 There is nothing to operate: **plug it in and wait**. Typical power-up:
@@ -351,7 +387,8 @@ After a sync the display shows:
 
 ```
 arduino_uno_r4_wificlock/
-├── platformio.ini              # Build configuration
+├── platformio.ini              # Build configuration (+ scene_config.h pre-build hook)
+├── scene_config.json           # Display sequence + page timing + scene schedule (source of truth)
 ├── LICENSE                     # MIT license for this project's code
 ├── NOTICE                      # Third-party component notices
 ├── src/
@@ -359,10 +396,11 @@ arduino_uno_r4_wificlock/
 ├── include/
 │   ├── secrets.h              # Your credentials (gitignored, NEVER commit)
 │   ├── secrets.example.h      # Template for all config fields
-│   └── glyphFonts.h           # All glyph data: compact 5×3 (digits, A-Z, space, colon, dash, !) + large 7×5 (digits, A-Z)
+│   ├── glyphFonts.h           # All glyph data: compact 5×3 (digits, A-Z, space, colon, dash, !) + large 7×5 (digits, A-Z)
+│   └── scene_config.h         # GENERATED from scene_config.json — edit the JSON, not this
 ├── lib/
 │   └── DimmableR4Matrix/      # Patched fork of the bundled LED matrix driver with brightness control (MIT, © Arduino SA — see its README)
-├── tools/                      # Dev utilities (driver generator, font checks, README art generator)
+├── tools/                      # Dev utilities (config generator, driver generator, font checks, README art generator)
 └── README.md                   # This file
 ```
 

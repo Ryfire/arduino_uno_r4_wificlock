@@ -1,13 +1,13 @@
 {
   "version": 1,
   "sequence": [
-    { "phase": "time",    "duration_ms": 7000, "enabled": true },
+    { "phase": "time",    "duration_ms": 7000, "enabled": true, "blink_ms": 1000 },
     { "phase": "minutes", "duration_ms": 7000, "enabled": true },
-    { "phase": "date",    "duration_ms": 7000, "enabled": true },
+    { "phase": "date",    "duration_ms": 7000, "enabled": true, "hold_ms": 2000, "month_ms": 600, "slash_ms": 300, "day_ms": 900 },
     { "phase": "year",    "duration_ms": 7000, "enabled": true },
-    { "phase": "day",     "duration_ms": 7000, "enabled": true },
-    { "phase": "wifi",    "duration_ms": 7000, "enabled": true },
-    { "phase": "eye",     "duration_ms": 7000, "enabled": true, "every_n_cycles": 5 }
+    { "phase": "day",     "duration_ms": 7000, "enabled": true, "scroll_ms": 90 },
+    { "phase": "wifi",    "duration_ms": 7000, "enabled": true, "bars_ms": 350, "bars_hold_ms": 600, "count_ms": 900, "num_ms": 1600, "pulse_ms": 500 },
+    { "phase": "eye",     "duration_ms": 7000, "enabled": true, "every_n_cycles": 5, "step_ms": 700, "blink_ms": 400 }
   ],
   "scene_intro_ms": 2500,
   "scene_style": 2,

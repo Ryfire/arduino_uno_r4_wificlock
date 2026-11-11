@@ -50,6 +50,35 @@ PHASE_ENUM = {p: "GEN_PHASE_" + p.upper() for p in PHASES}
 # src/main.cpp (order must match the SceneKind enum).
 SCENES = ["night", "sunrise", "morning", "day", "sunset", "dusk"]
 
+# Per-phase detail knobs (page-INTERNAL animation timing), in ms.
+# field name -> (min, max, default)
+DETAIL_FIELDS = {
+    "time": {"blink_ms": (100, 5000, 1000)},           # colon blink period
+    "date": {"hold_ms": (250, 10000, 2000),            # month alone before flipping
+             "month_ms": (100, 5000, 600),             # month state in the flip
+             "slash_ms": (100, 2000, 300),             # '/' divider state
+             "day_ms": (100, 5000, 900)},              # day state (longer: the useful half)
+    "day":  {"scroll_ms": (20, 1000, 90)},             # day-name marquee speed
+    "eye":  {"step_ms": (100, 5000, 700),              # pose hold per step
+             "blink_ms": (50, 3000, 400)},             # closed-lid duration
+    "wifi": {"bars_ms": (50, 3000, 350),               # fan build-up per step
+             "bars_hold_ms": (0, 5000, 600),           # full-icon hold
+             "count_ms": (100, 5000, 900),             # dBm count-up
+             "num_ms": (200, 10000, 1600),             # number hold
+             "pulse_ms": (100, 5000, 500)},            # fan re-pulse
+}
+# struct field name per detail key (PhaseStep members)
+DETAIL_STRUCT_FIELD = {
+    "blink_ms": "blinkMs", "hold_ms": "holdMs", "month_ms": "monthMs",
+    "slash_ms": "slashMs", "day_ms": "dayMs",
+    "scroll_ms": "scrollMs", "step_ms": "stepMs", "bars_ms": "barsMs",
+    "bars_hold_ms": "barsHoldMs", "count_ms": "countMs",
+    "num_ms": "numMs", "pulse_ms": "pulseMs",
+}
+# canonical field order for the emitted table rows
+DETAIL_ORDER = ["blinkMs", "holdMs", "monthMs", "slashMs", "dayMs", "scrollMs",
+                "stepMs", "barsMs", "barsHoldMs", "countMs", "numMs", "pulseMs"]
+
 MIN_DURATION_MS = 500
 MAX_DURATION_MS = 3600000
 
@@ -105,6 +134,17 @@ def validate_sequence(cfg):
         step["duration_ms"] = as_int(step.get("duration_ms"), where + ".duration_ms",
                                      MIN_DURATION_MS, MAX_DURATION_MS)
         step["enabled"] = as_bool(step.get("enabled", True), where + ".enabled")
+        # per-phase detail knobs (page-internal animation timing)
+        allowed = DETAIL_FIELDS.get(phase, {})
+        for key, (lo, hi, dflt) in allowed.items():
+            step[key] = as_int(step.get(key, dflt), where + "." + key, lo, hi)
+        for key in step:
+            if key in ("phase", "duration_ms", "enabled", "every_n_cycles"):
+                continue
+            if key not in allowed:
+                fail("%s: field '%s' is not valid for phase '%s' (allowed: %s)"
+                     % (where, key, phase,
+                        ", ".join(allowed) if allowed else "(none)"))
         if phase == "eye":
             step["every_n_cycles"] = as_int(step.get("every_n_cycles", 5),
                                             where + ".every_n_cycles", 0, 100)
@@ -170,21 +210,39 @@ def render_header(steps, intro_ms, style, hour_map):
     lines.append("};")
     lines.append("")
     lines.append("// One step of the display rotation: what shows, for how long, whether it")
-    lines.append("// plays at all. everyNCycles is only used by the eye phase (0 = never).")
+    lines.append("// plays at all, plus the page-INTERNAL animation timing (detail fields")
+    lines.append("// apply only to their own phase; unused ones stay 0).")
+    lines.append("// everyNCycles is only used by the eye phase (0 = never).")
     lines.append("struct PhaseStep {")
     lines.append("  uint8_t phase;")
     lines.append("  unsigned long durationMs;")
     lines.append("  bool enabled;")
     lines.append("  uint8_t everyNCycles;")
+    lines.append("  unsigned int blinkMs;     // time: colon blink / eye: closed-lid")
+    lines.append("  unsigned int holdMs;      // date: month alone before flipping")
+    lines.append("  unsigned int monthMs;    // date: month state in the flip")
+    lines.append("  unsigned int slashMs;    // date: '/' divider state")
+    lines.append("  unsigned int dayMs;      // date: day state (the useful half)")
+    lines.append("  unsigned int scrollMs;    // day: marquee speed")
+    lines.append("  unsigned int stepMs;      // eye: pose hold per step")
+    lines.append("  unsigned int barsMs;      // wifi: fan build-up per step")
+    lines.append("  unsigned int barsHoldMs;  // wifi: full-icon hold before the number")
+    lines.append("  unsigned int countMs;     // wifi: dBm count-up")
+    lines.append("  unsigned int numMs;       // wifi: number hold between pulses")
+    lines.append("  unsigned int pulseMs;     // wifi: fan re-pulse")
     lines.append("};")
     lines.append("")
     lines.append("const PhaseStep SCENE_SEQUENCE[] = {")
     for step in steps:
-        lines.append("  { %-19s %6lu, %-5s %d },   // %s"
+        fields = DETAIL_FIELDS.get(step["phase"], {})
+        vals = {DETAIL_STRUCT_FIELD[k]: step[k] for k in fields}
+        detail = ", ".join("%d" % vals.get(f, 0) for f in DETAIL_ORDER)
+        lines.append("  { %-19s %6lu, %-5s %2d, %s },   // %s"
                      % (PHASE_ENUM[step["phase"]] + ",",
                         step["duration_ms"],
                         ("true" if step["enabled"] else "false") + ",",
                         step.get("every_n_cycles", 0),
+                        detail,
                         step["phase"]))
     lines.append("};")
     lines.append("const uint8_t SCENE_SEQUENCE_LEN = sizeof(SCENE_SEQUENCE) / sizeof(SCENE_SEQUENCE[0]);")
