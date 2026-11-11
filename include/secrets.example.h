@@ -17,4 +17,9 @@ const char* WIFI_PASSWORD = "password";
 // 1 = 24-hour display (e.g. 1435), 0 = 12-hour with AM/PM (e.g. "2 PM")
 #define TIME_FORMAT_24H 0
 
+// ===== Time-of-day scene intro (optional - main.cpp defaults to 2) =====
+// Style of the vignette that plays before the clock on the time page:
+//   2 = animated scenes (default), 1 = static image art, 0 = no intro
+// #define SCENE_STYLE 1
+
 #endif

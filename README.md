@@ -12,6 +12,7 @@ A WiFi-enabled digital clock using the Arduino UNO R4 WiFi's built-in 8×12 LED 
 - **7-Page Rotating Display**: time → large minutes → date → year → day-name scroll → WiFi signal, each page held 7 seconds, plus a **two-eyed face** every 5th cycle
 - **Night Dimming**: the whole matrix instantly drops to 15% brightness at 22:00 and back to 100% at 06:00 — no ramp, DST-aware local time, all via `#ifndef` constants
 - **Sweep Transitions**: pages wipe in column-by-column from the right edge (~0.5 s) instead of hard-cuts; the date page drops its month in from the top instead
+- **Time-of-Day Scenes**: each visit to the time page opens with a short animated vignette matched to the hour — sunrise, morning, day, sunset, dusk, or a moonlit night — then wipes away to reveal the clock
 - **Self-Healing Network**: WiFi reconnects forever on its own (backoff 5s→10s→30s→60s); the NO WIFI banner covers the outage, and real time resumes from the last good sync on reconnect
 - **NTP Resilience**: retry backoff (1→5→15 min) with round-robin server rotation; time keeps running even while offline
 - **WiFi Loss Warning**: while the network is down, a full-screen **X flash** + scrolling **NO WIFI** marquee loops until the connection returns — the clock never silently pretends to be fine
@@ -104,6 +105,41 @@ The matrix is 12 columns × 8 rows. The clock rotates through **seven pages**, e
 
 The colon dots sit in the **blank cell after the hour** (`11 · P` → dots between `11` and `P`; `9 · AM` → dots after the `9`), so they never merge into a digit.
 
+Before the clock appears, every visit to this page opens with a short **time-of-day scene** (~2.5 s) picked from the clock's local hour:
+
+| Hours (local) | Scene |
+|---------------|-------|
+| 21:00–04:59 | **night** — crescent moon over the ground, four stars twinkling |
+| 05:00–06:59 | **sunrise** — the sun climbs out of the ground while stars wink out |
+| 07:00–10:59 | **morning** — a small sun with pulsing rays, a cloud drifting by |
+| 11:00–16:59 | **day** — full sunburst, cardinal rays pulsing |
+| 17:00–18:59 | **sunset** — the sun sinks behind the ground under thin clouds |
+| 19:00–20:59 | **dusk** — the afterglow dome sinks back into the horizon while stars pop in one by one |
+
+The scene then wipes away with the usual column sweep to reveal the clock:
+
+```
+        night                 sunrise                dusk
+  ....#.......        ....#.......        ............
+  ..#.....##..        ..#.........        ..#.........
+  .......##...        ............        ............
+  ....#..##...        ....#.......        ....#.......
+  .......##...        ............        ............
+  .#......##..        .....##.....        .#.######...
+  ............        ....####....        ..########..
+  ############        ############        ############
+```
+
+The scenes are procedural (drawn by the same frame pipeline as every other page), and `SCENE_FORCE` at the top of `src/main.cpp` lets you preview any bucket on the bench without waiting for the real hour.
+
+**Choosing the style** — `SCENE_STYLE` (declared with a default in `src/main.cpp`, overridable from `secrets.h`) picks what plays during that ~2.5 s window:
+
+| Value | Behavior |
+|-------|----------|
+| `2` | **Animated scenes** (default) — motion, twinkles, drifting clouds |
+| `1` | **Static image art** — one purpose-drawn still per bucket (`SCENE_ART`), every star lit and every ray on |
+| `0` | **No intro** — the time page wipes straight to the clock |
+
 ### 2. Minutes page (7 s)
 
 The current minutes in **large full-height digits**. This is the only page with tall glyphs — the size difference is how you tell it from everything else. (`05` shown; tens at left, gap, ones at right.)
@@ -183,7 +219,7 @@ Signal strength of the connected network. The page opens with a **fan build-up**
 | −80 … −71 dBm | dot + 1 arc |
 | weaker than −80 dBm | dot only |
 
-After the build-up (~1.4 s) and a short hold, the live **RSSI in dBm** replaces the icon for the rest of the slot:
+After the build-up (~1.4 s) and a short hold, the live **RSSI in dBm** replaces the icon — and then the slot never sits still: the number first **counts up from −100** like a meter locking onto the signal, then alternates between holding the real reading and a **quick fan re-pulse**:
 
 ```
    fan build-up           number "-57"
@@ -199,7 +235,7 @@ After the build-up (~1.4 s) and a short hold, the live **RSSI in dBm** replaces 
 
 The minus is a short bar tucked against the left edge, followed by a 2-column gap before the digits — the font's full-width dash glyph would otherwise fuse into the first digit — and the two digits carry a 1-column space between them. Readings of −100 dBm or weaker drop the minus and just center the digits with the same spacing; the value is definitionally negative on this page.
 
-The timing knobs are `WIFI_BARS_MS` (350 ms per buildup step) and `WIFI_BARS_HOLD` (600 ms the full icon stays before the number). When WiFi is down this page doesn't run at all — the WiFi loss banner below takes over instead.
+The timing knobs are `WIFI_BARS_MS` (350 ms per buildup step), `WIFI_BARS_HOLD` (600 ms the full icon stays before the number), `WIFI_COUNT_MS` (900 ms count-up), `WIFI_NUM_MS` (1600 ms per number hold) and `WIFI_PULSE_MS` (500 ms fan re-pulse). When WiFi is down this page doesn't run at all — the WiFi loss banner below takes over instead.
 
 ### WiFi loss banner (display override)
 
@@ -234,11 +270,12 @@ The pupils are drawn in the middle column of each eye's interior, then shifted o
 | What you see | Which page |
 |--------------|------------|
 | 2–4 small digits + AM/PM + blinking colon dots | **Time** |
+| A tiny landscape — moon, rising/sinking sun, stars — then it wipes to the clock | **Time page scene intro** (first ~2.5 s of the Time page) |
 | Huge digits filling the whole height | **Minutes** |
 | A 2-digit number that drops in from the top, holds 3 s, then flips every ~350 ms | **Date** |
 | `2 6`-style pair, static, centered | **Year** |
 | A word in large letters scrolling across the screen | **Day-name scroll** |
-| A fan that builds up dot-first, then a negative number | **WiFi signal** |
+| A fan builds up, a number counts up from −100, then number and fan alternate | **WiFi signal** |
 | Full-screen X flashing, then NO WIFI scrolling, in a loop | **WiFi loss banner (override)** |
 | A two-eyed face with pupils looking around, blinking every ~4 min | **Two-eyed face** |
 

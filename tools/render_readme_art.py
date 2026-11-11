@@ -227,3 +227,145 @@ show('FACE center (pupil mid)', face_frame(2))
 show('FACE left (pupil left)', face_frame(1))
 show('FACE right (pupil right)', face_frame(3))
 show('FACE blink (closed)', face_frame(None))
+
+
+# ===== Static image art (SCENE_STYLE=1 -> SCENE_ART in main.cpp) =====
+# Purpose-drawn stills indexed by SceneKind (night, sunrise, morning, day,
+# sunset, dusk): the most expressive pose of each bucket with every star lit
+# and every ray on. Shared ground line on row 7, same family as the animated
+# scenes. Values are ported verbatim into the SCENE_ART array.
+
+STATIC_ART = [
+    ('STATIC night', [
+        "....#....#..",
+        "..#.....##..",
+        ".......##...",
+        "....#..##...",
+        ".......##...",
+        ".#......##..",
+        "............",
+        "############",
+    ]),
+    ('STATIC sunrise', [
+        "............",
+        "..#.........",
+        "............",
+        "....#.......",
+        "............",
+        ".....##.....",
+        "....####....",
+        "############",
+    ]),
+    ('STATIC morning', [
+        "..#.........",
+        ".###........",
+        "#####.......",
+        ".###........",
+        "..#....##...",
+        "......####..",
+        "............",
+        "############",
+    ]),
+    ('STATIC day', [
+        "....####....",
+        "....####....",
+        "...######...",
+        "...######...",
+        "....####....",
+        "....####....",
+        "............",
+        "############",
+    ]),
+    ('STATIC sunset', [
+        "............",
+        "####....####",
+        "........####",
+        "............",
+        "............",
+        ".....##.....",
+        "....####....",
+        "############",
+    ]),
+    ('STATIC dusk', [
+        "....#....#..",
+        "..#.........",
+        "............",
+        ".#.......#..",
+        "....####....",
+        "...######...",
+        "..########..",
+        "############",
+    ]),
+]
+
+for title, rows in STATIC_ART:
+    assert all(len(r) == 12 for r in rows) and len(rows) == 8, title
+    show(title, [[1 if ch == '#' else 0 for ch in r] for r in rows])
+
+
+# ===== Time-of-day scene intro (displayScene) =====
+# Mirrors main.cpp's sceneNight/sceneSunrise/sceneDusk at fixed p values.
+# Stars are drawn lit (they twinkle at runtime); ground = row 7.
+
+SUN_DISC = [
+    "0110",
+    "1111",
+    "1111",
+    "0110",
+]
+
+MOON = [
+    "01100",
+    "11000",
+    "11000",
+    "11000",
+    "01100",
+]
+
+
+def scene_ground(f):
+    for c in range(12):
+        f[7][c] = 1
+
+
+def put_sun(f, top):
+    for r in range(4):
+        fr = top + r
+        if fr < 0 or fr > 6:
+            continue
+        for c in range(4):
+            if SUN_DISC[r][c] == "1":
+                f[fr][4 + c] = 1
+
+
+# Scene "night": ground + crescent moon (cols 7-11, rows 1-5) + 4 stars
+f = blank()
+scene_ground(f)
+for r in range(5):
+    for c in range(5):
+        if MOON[r][c] == "1":
+            f[1 + r][7 + c] = 1
+for r, c in ((1, 2), (3, 4), (5, 1), (0, 4)):
+    f[r][c] = 1
+show('SCENE night', f)
+
+# Scene "sunrise" at p=0.5: stars with p<0.60/0.75/0.90 lit ((5,1) is
+# gone by p=0.45), sun top = 7 - int(0.5 * 5.5) = 5 (half risen)
+f = blank()
+scene_ground(f)
+for r, c in ((1, 2), (3, 4), (0, 4)):
+    f[r][c] = 1
+put_sun(f, 7 - int(0.5 * 5.5))
+show('SCENE sunrise (mid-rise)', f)
+
+# Scene "dusk" at p=0.6: mid dome (p in [0.35,0.65): row5 cols3-8 + row6
+# cols2-9), stars with p>0.15/0.35/0.55 lit ((0,4) needs p>0.75)
+f = blank()
+scene_ground(f)
+for c in range(3, 9):
+    f[5][c] = 1
+for c in range(2, 10):
+    f[6][c] = 1
+for r, c in ((1, 2), (3, 4), (5, 1)):
+    f[r][c] = 1
+show('SCENE dusk (stars popping in)', f)

@@ -103,12 +103,37 @@ const unsigned long EYE_STEP_MS = 700;          // eye animation: ms per pose
 const unsigned long EYE_BLINK_MS = 400;         // eye animation: closed-lid duration
 const unsigned long WIFI_BARS_MS = 350;         // wifi page: ms per fan-buildup step
 const unsigned long WIFI_BARS_HOLD = 600;       // wifi page: full-icon hold before the number
+const unsigned long WIFI_COUNT_MS = 900;        // wifi page: dBm count-up when the number appears
+const unsigned long WIFI_NUM_MS = 1600;         // wifi page: number hold between fan pulses
+const unsigned long WIFI_PULSE_MS = 500;        // wifi page: quick fan re-pulse between holds
 const unsigned long WARN_X_ON_MS = 450;         // banner: X visible per flash
 const unsigned long WARN_X_OFF_MS = 250;        // banner: dark gap between flashes
 const int WARN_X_FLASHES = 3;                   // banner: flashes before the marquee
 const unsigned long WARN_SCROLL_MS = 90;        // banner: ms per marquee column
 const int EYE_EVERY_N_CYCLES = 5;               // eye plays every Nth cycle (0 = off)
 const unsigned long WIFI_CONNECT_TIMEOUT = 15000; // per-attempt timeout (ms)
+
+// ===== Time-of-day scene intro (TIME page) =====
+// A short vignette plays at the start of every TIME visit before the clock
+// is revealed. SCENE_STYLE picks the flavor (override in secrets.h):
+//   2 = animated scenes (default) | 1 = static image art | 0 = no intro
+// SCENE_FORCE is the bench-preview hook: -1 follows the clock's hour,
+// 0-5 forces one scene, 6 cycles all six per visit.
+#ifndef SCENE_STYLE
+#define SCENE_STYLE 2
+#endif
+const unsigned long SCENE_INTRO_MS = 2500;   // scene length within the 7 s slot
+#ifndef SCENE_FORCE
+#define SCENE_FORCE -1
+#endif
+// Bucket boundaries: each constant is the first hour of the NEXT bucket;
+// night wraps midnight (21:00-04:59).
+const int SCENE_NIGHT_END = 5;      // 00:00-04:59 -> night
+const int SCENE_SUNRISE_END = 7;    // 05:00-06:59 -> sunrise
+const int SCENE_MORNING_END = 11;   // 07:00-10:59 -> morning
+const int SCENE_DAY_END = 17;       // 11:00-16:59 -> day
+const int SCENE_SUNSET_END = 19;    // 17:00-18:59 -> sunset
+const int SCENE_DUSK_END = 21;      // 19:00-20:59 -> dusk (21:00+ -> night)
 
 // Day names for the scroll page, indexed by day-of-week (0 = Sunday).
 // Epoch days map directly: (days + 4) % 7 -> 1970-01-01 was a Thursday.
@@ -196,6 +221,74 @@ const uint8_t XMARK[8][12] = {
   {0,0,0,1,0,0,0,0,1,0,0,0}
 };
 
+// Static image art for the time-of-day intro (SCENE_STYLE=1), indexed by
+// SceneKind: night, sunrise, morning, day, sunset, dusk. Purpose-drawn
+// stills — every star lit, every ray on — sharing the animated scenes'
+// ground line on row 7. Keep in sync with STATIC_ART in
+// tools/render_readme_art.py (the README frames are generated from it).
+const uint8_t SCENE_ART[6][8][12] = {
+  {   // night: crescent moon + four stars
+    {0,0,0,0,1,0,0,0,0,1,0,0},
+    {0,0,1,0,0,0,0,0,1,1,0,0},
+    {0,0,0,0,0,0,0,1,1,0,0,0},
+    {0,0,0,0,1,0,0,1,1,0,0,0},
+    {0,0,0,0,0,0,0,1,1,0,0,0},
+    {0,1,0,0,0,0,0,0,1,1,0,0},
+    {0,0,0,0,0,0,0,0,0,0,0,0},
+    {1,1,1,1,1,1,1,1,1,1,1,1}
+  },
+  {   // sunrise: sun half out of the ground, early stars still up
+    {0,0,0,0,0,0,0,0,0,0,0,0},
+    {0,0,1,0,0,0,0,0,0,0,0,0},
+    {0,0,0,0,0,0,0,0,0,0,0,0},
+    {0,0,0,0,1,0,0,0,0,0,0,0},
+    {0,0,0,0,0,0,0,0,0,0,0,0},
+    {0,0,0,0,0,1,1,0,0,0,0,0},
+    {0,0,0,0,1,1,1,1,0,0,0,0},
+    {1,1,1,1,1,1,1,1,1,1,1,1}
+  },
+  {   // morning: small sun, all rays on, cloud parked mid-sky
+    {0,0,1,0,0,0,0,0,0,0,0,0},
+    {0,1,1,1,0,0,0,0,0,0,0,0},
+    {1,1,1,1,1,0,0,0,0,0,0,0},
+    {0,1,1,1,0,0,0,0,0,0,0,0},
+    {0,0,1,0,0,0,0,1,1,0,0,0},
+    {0,0,0,0,0,0,1,1,1,1,0,0},
+    {0,0,0,0,0,0,0,0,0,0,0,0},
+    {1,1,1,1,1,1,1,1,1,1,1,1}
+  },
+  {   // day: full sunburst, every ray lit
+    {0,0,0,0,1,1,1,1,0,0,0,0},
+    {0,0,0,0,1,1,1,1,0,0,0,0},
+    {0,0,0,1,1,1,1,1,1,1,0,0},
+    {0,0,0,1,1,1,1,1,1,1,0,0},
+    {0,0,0,0,1,1,1,1,0,0,0,0},
+    {0,0,0,0,1,1,1,1,0,0,0,0},
+    {0,0,0,0,0,0,0,0,0,0,0,0},
+    {1,1,1,1,1,1,1,1,1,1,1,1}
+  },
+  {   // sunset: sun sinking at the horizon, two cloud streaks
+    {0,0,0,0,0,0,0,0,0,0,0,0},
+    {1,1,1,1,0,0,0,0,1,1,1,1},
+    {0,0,0,0,0,0,0,0,1,1,1,1},
+    {0,0,0,0,0,0,0,0,0,0,0,0},
+    {0,0,0,0,0,0,0,0,0,0,0,0},
+    {0,0,0,0,0,1,1,0,0,0,0,0},
+    {0,0,0,0,1,1,1,1,0,0,0,0},
+    {1,1,1,1,1,1,1,1,1,1,1,1}
+  },
+  {   // dusk: four stars over the afterglow dome left on the horizon
+    {0,0,0,0,1,0,0,0,0,1,0,0},
+    {0,0,1,0,0,0,0,0,0,0,0,0},
+    {0,0,0,0,0,0,0,0,0,0,0,0},
+    {0,1,0,0,0,0,0,0,0,1,0,0},
+    {0,0,0,0,1,1,1,1,0,0,0,0},
+    {0,0,0,1,1,1,1,1,1,0,0,0},
+    {0,0,1,1,1,1,1,1,1,1,0,0},
+    {1,1,1,1,1,1,1,1,1,1,1,1}
+  }
+};
+
 // ===== Objects =====
 DimmableR4Matrix matrix;
 WiFiUDP ntpUDP;
@@ -253,6 +346,13 @@ int cycleCount = 0;               // full passes through the phase list
 unsigned long wifiPageStart = 0;  // wifi page: animation clock (set on entry)
 long wifiPageRssi = 0;            // wifi page: RSSI snapshot taken on entry
 
+// ===== Time-of-day scene intro state (TIME page) =====
+enum SceneKind { SCENE_NIGHT, SCENE_SUNRISE, SCENE_MORNING, SCENE_DAY, SCENE_SUNSET, SCENE_DUSK };
+SceneKind sceneKind = SCENE_NIGHT;  // resolved when the TIME phase is entered
+unsigned long sceneStart = 0;       // scene animation clock (set on entry)
+bool sceneRevealed = false;         // scene -> clock wipe fired once per visit
+int sceneVisit = 0;                 // visit counter (SCENE_FORCE=6 cycling)
+
 // ===== Day-name scroll state =====
 uint8_t scrollBuf[96];            // packed columns: bit r = row r (fits WEDNESDAY: 85 cols)
 int scrollLen = 0;                // total columns in buffer
@@ -296,6 +396,9 @@ void clearFrame();
 void renderCharsIntoFrame(const char* text);
 void display4Chars(const char* text);
 void displayTime(int hours, int minutes);
+void displayScene(unsigned long elapsed);
+void displaySceneArt();
+SceneKind pickScene();
 void displayMinutesLarge(int minutes);
 void displayDate();
 void displayYear();
@@ -474,6 +577,8 @@ void setup() {
   lastNtpAttempt = millis();
   lastPhaseToggle = millis();
   lastBlinkTime = millis();
+  sceneStart = millis();           // boot lands on the TIME page: play a scene
+  sceneKind = pickScene();
   Serial.println("Setup complete. Entering state machine...");
 }
 
@@ -785,6 +890,11 @@ void advancePhase(int phases) {
         wifiPageStart = millis();
         wifiPageRssi = WiFi.RSSI();   // one snapshot per visit; the number stays steady
       }
+      if (next == PHASE_TIME) {
+        sceneStart = millis();        // scene intro plays before the clock
+        sceneRevealed = false;
+        sceneKind = pickScene();      // bucket by hour (or SCENE_FORCE)
+      }
     }
   }
 }
@@ -796,13 +906,34 @@ void renderDisplayPhase() {
   int minutes = timeClient.getMinutes();
 
   switch (displayPhase) {
-    case PHASE_TIME:
+    case PHASE_TIME: {
+      // Scene intro first: the vignette runs for SCENE_INTRO_MS, then one
+      // sweep wipes the scene frame away to reveal the clock underneath.
+      // SCENE_STYLE picks the flavor (see the constants block):
+      //   0 = no intro (the page-entry sweep already revealed the clock)
+      //   1 = static image art, held still      2 = animated scenes
+#if SCENE_STYLE != 0
+      unsigned long sceneEl = millis() - sceneStart;
+      if (sceneEl < SCENE_INTRO_MS) {
+#if SCENE_STYLE == 1
+        displaySceneArt();
+#else
+        displayScene(sceneEl);
+#endif
+        break;
+      }
+      if (!sceneRevealed) {
+        sceneRevealed = true;
+        startSweep();   // prevFrame = last scene render -> clock wipes in
+      }
+#endif
       if (millis() - lastBlinkTime >= 1000) {
         colonVisible = !colonVisible;
         lastBlinkTime = millis();
       }
       displayTime(hours, minutes);
       break;
+    }
     case PHASE_MINUTES:
       displayMinutesLarge(minutes);
       break;
@@ -883,6 +1014,189 @@ void clearFrame() {
 
 void clearDisplay() {
   clearFrame();
+  renderFrame();
+}
+
+// ===== Time-of-day scene intro =====
+// Plays at the start of every TIME visit (SCENE_INTRO_MS of the 7 s slot).
+// The bucket comes from sceneForHour(); celestial motion is progress-driven
+// (p = 0..1 across the intro) like the wifi fan build-up, while twinkles and
+// pulses key off millis() so they keep moving between renders. Every scene
+// shares the ground line on row 7.
+
+SceneKind sceneForHour(int hours) {
+  if (hours < SCENE_NIGHT_END) return SCENE_NIGHT;
+  if (hours < SCENE_SUNRISE_END) return SCENE_SUNRISE;
+  if (hours < SCENE_MORNING_END) return SCENE_MORNING;
+  if (hours < SCENE_DAY_END) return SCENE_DAY;
+  if (hours < SCENE_SUNSET_END) return SCENE_SUNSET;
+  if (hours < SCENE_DUSK_END) return SCENE_DUSK;
+  return SCENE_NIGHT;              // 21:00+ wraps back to night
+}
+
+SceneKind pickScene() {
+  if (SCENE_FORCE >= 6) return (SceneKind)(sceneVisit++ % 6);  // bench cycle
+  if (SCENE_FORCE >= 0) return (SceneKind)SCENE_FORCE;         // force one
+  return sceneForHour(timeClient.getHours());                  // follow clock
+}
+
+static void sceneGround() {
+  for (int c = 0; c < 12; c++) frame[7][c] = 1;
+}
+
+// One twinkling star: lit 2 of every 3 steps, phase-offset per star.
+static void sceneStar(int row, int col, int phase) {
+  if (((millis() / 350) + phase) % 3 != 0) frame[row][col] = 1;
+}
+
+// 4x4 rounded sun disc at cols 4-7 (matrix center), clipped to rows 0-6 so
+// it can rise from / sink behind the ground line cleanly.
+static void sceneSun(int top) {
+  static const uint8_t disc[4][4] = {
+    {0,1,1,0},
+    {1,1,1,1},
+    {1,1,1,1},
+    {0,1,1,0},
+  };
+  for (int r = 0; r < 4; r++) {
+    int fr = top + r;
+    if (fr < 0 || fr > 6) continue;
+    for (int c = 0; c < 4; c++) {
+      if (disc[r][c]) frame[fr][4 + c] = 1;
+    }
+  }
+}
+
+// 21:00-04:59 — crescent moon over the ground, four stars twinkling.
+static void sceneNight() {
+  sceneGround();
+  static const uint8_t moon[5][5] = {   // lit on the left, opening right
+    {0,1,1,0,0},
+    {1,1,0,0,0},
+    {1,1,0,0,0},
+    {1,1,0,0,0},
+    {0,1,1,0,0},
+  };
+  for (int r = 0; r < 5; r++) {
+    for (int c = 0; c < 5; c++) {
+      if (moon[r][c]) frame[1 + r][7 + c] = 1;
+    }
+  }
+  sceneStar(1, 2, 0);
+  sceneStar(3, 4, 1);
+  sceneStar(5, 1, 2);
+  sceneStar(0, 4, 3);
+}
+
+// 05:00-06:59 — the sun climbs out of the ground while the stars wink out.
+static void sceneSunrise(float p) {
+  sceneGround();
+  if (p < 0.45f) sceneStar(5, 1, 2);
+  if (p < 0.60f) sceneStar(1, 2, 0);
+  if (p < 0.75f) sceneStar(3, 4, 1);
+  if (p < 0.90f) sceneStar(0, 4, 3);
+  sceneSun(7 - (int)(p * 5.5f));   // top: 7 (hidden) -> 2 (rows 2-5)
+}
+
+// 07:00-10:59 — a small sun with pulsing rays and a cloud drifting by.
+static void sceneMorning(float p) {
+  sceneGround();
+  for (int r = 1; r <= 3; r++) {         // 3x3 sun, upper-left
+    for (int c = 1; c <= 3; c++) frame[r][c] = 1;
+  }
+  if ((millis() / 300) % 2 == 0) {       // rays pulse
+    frame[0][2] = 1;
+    frame[4][2] = 1;
+    frame[2][0] = 1;
+    frame[2][4] = 1;
+  }
+  static const uint8_t cloud[2][4] = {   // drifts left -> right at rows 4-5
+    {0,1,1,0},
+    {1,1,1,1},
+  };
+  int cx = (int)(p * 16.0f) - 4;
+  for (int r = 0; r < 2; r++) {
+    for (int c = 0; c < 4; c++) {
+      int fc = cx + c;
+      if (cloud[r][c] && fc >= 0 && fc < 12) frame[4 + r][fc] = 1;
+    }
+  }
+}
+
+// 11:00-16:59 — full sunburst: cardinal rays pulse, diagonals hold.
+static void sceneDay() {
+  sceneGround();
+  sceneSun(1);                     // disc at rows 1-4, cols 4-7
+  frame[0][4] = 1;                 // diagonal rays (always on)
+  frame[0][7] = 1;
+  frame[5][4] = 1;
+  frame[5][7] = 1;
+  if ((millis() / 300) % 2 == 0) {  // cardinal rays (pulsing)
+    frame[0][5] = 1;
+    frame[0][6] = 1;
+    frame[5][5] = 1;
+    frame[5][6] = 1;
+    frame[2][3] = 1;
+    frame[3][3] = 1;
+    frame[2][8] = 1;
+    frame[3][8] = 1;
+  }
+}
+
+// 17:00-18:59 — the sun sinks behind the ground under thin cloud streaks.
+static void sceneSunset(float p) {
+  sceneGround();
+  sceneSun(2 + (int)(p * 5.0f));   // top: 2 (rows 2-5) -> 7 (hidden)
+  int drift = (int)(p * 3.0f);     // clouds creep left as the sun drops
+  for (int c = 0; c < 4; c++) {
+    int fc = c - drift;
+    if (fc >= 0) frame[1][fc] = 1;
+    fc = 8 + c - drift;
+    if (fc < 12) frame[2][fc] = 1;
+  }
+}
+
+// 19:00-20:59 — the afterglow dome shrinks back into the horizon while
+// stars pop in one by one. Same dome as the static SCENE_ART still, in
+// three stages so the glow reads as receding rather than blinking out.
+static void sceneDusk(float p) {
+  sceneGround();
+  if (p < 0.35f) {                 // full dome on rows 4-6
+    for (int c = 4; c <= 7; c++) frame[4][c] = 1;
+    for (int c = 3; c <= 8; c++) frame[5][c] = 1;
+    for (int c = 2; c <= 9; c++) frame[6][c] = 1;
+  } else if (p < 0.65f) {          // dome sinks to rows 5-6
+    for (int c = 3; c <= 8; c++) frame[5][c] = 1;
+    for (int c = 2; c <= 9; c++) frame[6][c] = 1;
+  } else if (p < 0.85f) {          // last band left on the horizon
+    for (int c = 4; c <= 7; c++) frame[6][c] = 1;
+  }
+  if (p > 0.15f) sceneStar(1, 2, 0);
+  if (p > 0.35f) sceneStar(3, 4, 1);
+  if (p > 0.55f) sceneStar(5, 1, 2);
+  if (p > 0.75f) sceneStar(0, 4, 3);
+}
+
+void displayScene(unsigned long elapsed) {
+  float p = (float)elapsed / (float)SCENE_INTRO_MS;
+  if (p < 0.0f) p = 0.0f;
+  if (p > 1.0f) p = 1.0f;
+  clearFrame();
+  switch (sceneKind) {
+    case SCENE_NIGHT:   sceneNight();   break;
+    case SCENE_SUNRISE: sceneSunrise(p); break;
+    case SCENE_MORNING: sceneMorning(p); break;
+    case SCENE_DAY:     sceneDay();     break;
+    case SCENE_SUNSET:  sceneSunset(p);  break;
+    case SCENE_DUSK:    sceneDusk(p);    break;
+  }
+  renderFrame();
+}
+
+// SCENE_STYLE=1: hold the purpose-drawn still for the whole intro window.
+void displaySceneArt() {
+  clearFrame();
+  memcpy(frame, SCENE_ART[sceneKind], sizeof(frame));
   renderFrame();
 }
 
@@ -1125,9 +1439,42 @@ int wifiRssiSteps(int rssi) {
   return 1;
 }
 
+// The dBm readout layout: the minus is a 2-px bar hugging the left edge
+// (cols 0-1, row 4) — the 3-wide dash glyph would fuse with the next
+// digit's filled edge into one streak. After a 2-column gap the digits
+// land in fixed cells with a 1-column space between them: bar 0-1,
+// gap 2-3, first digit 4-6, gap 7, second digit 8-10 ("-57"). Readings
+// of -100 or weaker drop the bar and center the digits instead — the
+// value is definitionally negative on this page.
+void renderRssiNumber(long value) {
+  char buf[7];
+  snprintf(buf, sizeof(buf), "%ld", value);
+  bool neg = (buf[0] == '-');
+  const char* digits = neg ? buf + 1 : buf;
+  int ndig = strlen(digits);
+
+  if (neg && ndig <= 2) {
+    frame[4][0] = 1;                          // minus bar (glyph-middle row)
+    frame[4][1] = 1;
+    for (int i = 0; i < ndig; i++) {
+      renderCompactChar(digits[i], 4 + i * 4); // fixed cells 4 and 8
+    }
+  } else {
+    // Wide reading (<= -100 dBm): no room for bar + gap; center the
+    // digits with the same 1-column spacing.
+    int start = (12 - (ndig * 4 - 1)) / 2;
+    if (start < 0) start = 0;
+    for (int i = 0; i < ndig; i++) {
+      renderCompactChar(digits[i], start + i * 4);
+    }
+  }
+}
+
 // The page plays the fan build-up (one arc per WIFI_BARS_MS, capped by
-// signal quality, then a full-icon hold), then shows the RSSI snapshot
-// for the rest of the 7 s slot.
+// signal quality, then a full-icon hold), then the RSSI takes over for
+// the rest of the slot without ever sitting still: it first counts up
+// from -100 like a meter locking onto the signal, then alternates
+// between holding the real reading and a quick fan re-pulse.
 void displayWifiRssi() {
   clearFrame();
 
@@ -1140,31 +1487,22 @@ void displayWifiRssi() {
     if (step > cap - 1) step = cap - 1;         // hold the full icon before the number
     memcpy(frame, WIFI_FAN[step], sizeof(frame));
   } else {
-    // Hand-placed readout: the minus is a 2-px bar hugging the left edge
-    // (cols 0-1, row 4) — the 3-wide dash glyph would fuse with the next
-    // digit's filled edge into one streak. After a 2-column gap the digits
-    // land in fixed cells with a 1-column space between them: bar 0-1,
-    // gap 2-3, first digit 4-6, gap 7, second digit 8-10 ("-57").
-    char buf[7];
-    snprintf(buf, sizeof(buf), "%ld", wifiPageRssi);
-    bool neg = (buf[0] == '-');
-    const char* digits = neg ? buf + 1 : buf;
-    int ndig = strlen(digits);
+    unsigned long t = elapsed - buildMs;
 
-    if (neg && ndig <= 2) {
-      frame[4][0] = 1;                          // minus bar (glyph-middle row)
-      frame[4][1] = 1;
-      for (int i = 0; i < ndig; i++) {
-        renderCompactChar(digits[i], 4 + i * 4); // fixed cells 4 and 8
-      }
+    if (t < WIFI_COUNT_MS) {
+      // Count-up: -100 (no signal) climbs to the real reading.
+      long shown = -100L + (wifiPageRssi + 100L) * (long)t / (long)WIFI_COUNT_MS;
+      renderRssiNumber(shown);
     } else {
-      // Wide reading (<= -100 dBm): no room for bar + gap; center the
-      // digits with the same 1-column spacing — the value is
-      // definitionally negative on this page.
-      int start = (12 - (ndig * 4 - 1)) / 2;
-      if (start < 0) start = 0;
-      for (int i = 0; i < ndig; i++) {
-        renderCompactChar(digits[i], start + i * 4);
+      unsigned long seg = (t - WIFI_COUNT_MS) % (WIFI_NUM_MS + WIFI_PULSE_MS);
+      if (seg < WIFI_NUM_MS) {
+        renderRssiNumber(wifiPageRssi);        // hold the real reading
+      } else {
+        // Quick fan re-pulse: a compressed rebuild between number holds.
+        int pstep = (int)((seg - WIFI_NUM_MS) / (WIFI_PULSE_MS / 4));
+        if (pstep > 3) pstep = 3;
+        if (pstep > cap - 1) pstep = cap - 1;
+        memcpy(frame, WIFI_FAN[pstep], sizeof(frame));
       }
     }
   }
