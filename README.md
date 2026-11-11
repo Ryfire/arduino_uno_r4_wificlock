@@ -12,7 +12,7 @@ A WiFi-enabled digital clock using the Arduino UNO R4 WiFi's built-in 8×12 LED 
 - **7-Page Rotating Display**: time → large minutes → date → year → day-name scroll → WiFi signal, each page held 7 seconds, plus a **two-eyed face** every 5th cycle
 - **Night Dimming**: the whole matrix instantly drops to 15% brightness at 22:00 and back to 100% at 06:00 — no ramp, DST-aware local time, all via `#ifndef` constants
 - **Sweep Transitions**: pages wipe in column-by-column from the right edge (~0.5 s) instead of hard-cuts; the date page drops its month in from the top instead
-- **Time-of-Day Scenes**: each visit to the time page opens with a short animated vignette matched to the hour — sunrise, morning, day, sunset, dusk, or a moonlit night — then wipes away to reveal the clock
+- **Time-of-Day Scenes**: each visit to the time page opens with a short vignette matched to the hour — sunrise, morning, day, sunset, dusk, or a moonlit night — then wipes away to reveal the clock; animated by default, and `SCENE_STYLE` switches between animated, static art, or no intro at all
 - **Self-Healing Network**: WiFi reconnects forever on its own (backoff 5s→10s→30s→60s); the NO WIFI banner covers the outage, and real time resumes from the last good sync on reconnect
 - **NTP Resilience**: retry backoff (1→5→15 min) with round-robin server rotation; time keeps running even while offline
 - **WiFi Loss Warning**: while the network is down, a full-screen **X flash** + scrolling **NO WIFI** marquee loops until the connection returns — the clock never silently pretends to be fine
@@ -54,6 +54,7 @@ Optional time settings (defaults shown; `main.cpp` supplies these if you omit th
 #define TZ_BASE_OFFSET (-5 * 3600)  // Standard-time offset (EST here)
 #define TZ_USE_US_DST 1             // Automatic US daylight saving
 #define TIME_FORMAT_24H 0           // 1 = 24-hour, 0 = 12-hour AM/PM
+#define SCENE_STYLE 2               // Scenes: 2 = animated, 1 = static art, 0 = off
 ```
 
 ### 3. Build & Upload
@@ -139,6 +140,14 @@ The scenes are procedural (drawn by the same frame pipeline as every other page)
 | `2` | **Animated scenes** (default) — motion, twinkles, drifting clouds |
 | `1` | **Static image art** — one purpose-drawn still per bucket (`SCENE_ART`), every star lit and every ray on |
 | `0` | **No intro** — the time page wipes straight to the clock |
+
+To change the style, add (or uncomment) one line in `include/secrets.h` — the default in `main.cpp` is only used when `secrets.h` doesn't define it:
+
+```cpp
+#define SCENE_STYLE 1   // 1 = static image art — or 2 = animated (default), 0 = no intro
+```
+
+Then rebuild and flash as usual; the new style applies from the next visit to the time page. `secrets.example.h` ships with the same line commented out as a reminder.
 
 ### 2. Minutes page (7 s)
 
