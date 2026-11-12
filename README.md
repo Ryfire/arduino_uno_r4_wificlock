@@ -358,6 +358,21 @@ Everything about how the display flows lives in one file at the repo root — no
 
 ---
 
+## Custom Boot Logo (`boot_logo.mpj`)
+
+Drop an LED Matrix Editor export named `boot_logo.mpj` into the repo root and the firmware plays it as a boot splash:
+
+```
+[{"matrix": [[...]], "duration": 66}, ...]
+```
+
+- **Plays at boot**, filling the radio connect wait: it runs through its frames at their own durations, holds a minimum total (~1.75 s) so a single-frame logo is actually visible, then keeps looping until the WiFi gets the IP (or the connect timeout expires).
+- **No file → no logo** — the build is identical to before, zero overhead when absent.
+- Export `frame -> 12×8` art from the [LED Matrix Editor](https://editor.ledmatrix.arduino.cc/) (or any `.mpj`-style JSON) and save it as `boot_logo.mpj` in the repo root.
+- **Workflow:** drop `boot_logo.mpj` → `pio run` (a pre-build step validates the frames and regenerates `include/boot_logo.h`; errors point at the offending frame) → `pio run --target upload` over USB. The generated header is committed, so Arduino IDE builds work too.
+
+---
+
 ## How to Use It
 
 There is nothing to operate: **plug it in and wait**. Typical power-up:

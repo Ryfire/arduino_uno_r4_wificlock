@@ -38,6 +38,7 @@
 // tools/generate_scene_config.py, which runs automatically before every
 // build (see platformio.ini). Edit the JSON, never this file's twin.
 #include "scene_config.h"
+#include "boot_logo.h"
 
 // ===== WiFi Configuration =====
 const char* ssid = WIFI_SSID;
@@ -426,6 +427,9 @@ void drawIndicators();
 void renderCompactChar(char c, int startCol);
 void showWiFiStatus(bool connected);
 void displayLoadingAnimation();
+#if CONFIG_BOOT_LOGO_ENABLED
+void displayBootLogo();
+#endif
 
 // Time / sync
 long getUtcOffset(int64_t utc);
@@ -545,8 +549,16 @@ void setup() {
   renderFrame();
 
   Serial.println("UNO R4 WiFi Smart Clock");
-  Serial.println("Connecting to WiFi...");
+#if CONFIG_BOOT_LOGO_ENABLED
+  // Boot logo splash: plays through the radio connect wait, unconditionally
+  // BEFORE connectToWiFi() so it shows even if WiFi associates instantly
+  // (cached AP) — its own exit conditions handle that: IP + minimum hold,
+  // or the connect timeout.
+  Serial.println("Boot logo: playing while the radio connects...");
+  displayBootLogo();
+#else
   displayLoadingAnimation();
+#endif
 
   // Blocking (bounded) connect at boot; everything after this is non-blocking
   connectToWiFi();
@@ -1758,3 +1770,47 @@ void displayLoadingAnimation() {
     delay(300);
   }
 }
+
+#if CONFIG_BOOT_LOGO_ENABLED
+// ===== Boot logo splash =====
+// Plays the flipbook once at its own frame durations, holds a minimum
+// total (CONFIG_BOOT_LOGO_HOLD_MS) so a single-frame logo is actually
+// visible, then keeps looping until the WiFi gets the IP — the logo fills
+// the radio connect wait. Blocking by design: setup() is single-threaded
+// and the loop() state machine starts after this.
+void displayBootLogo() {
+  unsigned long bootStart = millis();
+  unsigned long elapsed = 0;
+  unsigned int frameIdx = 0;
+  unsigned long frameStart = millis();
+  while (true) {
+    // unpack the current frame: 3 words, row-major MSB-first
+    for (int r = 0; r < 8; r++) {
+      for (int c = 0; c < 12; c++) {
+        uint32_t bit = (uint32_t)r * 12 + c;
+        uint32_t w = bit / 32;
+        uint32_t sh = 31 - (bit % 32);
+        frame[r][c] = (CONFIG_BOOT_LOGO_FRAMES[frameIdx][w] >> sh) & 1u;
+      }
+    }
+    matrix.renderBitmap(frame, 8, 12);
+
+    if (millis() - frameStart >= CONFIG_BOOT_LOGO_FRAME_MS[frameIdx]) {
+      frameIdx = (frameIdx + 1) % CONFIG_BOOT_LOGO_FRAME_COUNT;
+      frameStart = millis();
+    }
+    elapsed = millis() - bootStart;
+
+    // IP acquired and the minimum hold elapsed: splash done
+    if (WiFi.status() == WL_CONNECTED && WiFi.localIP() != IPAddress(0, 0, 0, 0) &&
+        elapsed >= CONFIG_BOOT_LOGO_HOLD_MS) {
+      break;
+    }
+    // connect timeout: fall through to the normal boot path
+    if (elapsed >= WIFI_CONNECT_TIMEOUT) {
+      break;
+    }
+    delay(10);
+  }
+}
+#endif

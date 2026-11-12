@@ -281,15 +281,142 @@ def generate(json_path, out_path):
     return True
 
 
+# ===== Boot logo (boot_logo.mpj -> include/boot_logo.h) =====
+# Drop an LED Matrix Editor export named boot_logo.mpj into the repo root and
+# the firmware plays it as a boot splash: it plays once at its own frame
+# durations, holds a minimum total (~1.75 s) so a single-frame logo is
+# actually visible, then loops until the WiFi gets the IP. No file -> no
+# logo: the build is identical to before.
+BOOT_LOGO_NAME = "boot_logo.mpj"
+BOOT_LOGO_MAX_FRAMES = 96
+BOOT_LOGO_MIN_DURATION_MS = 30
+BOOT_LOGO_MAX_DURATION_MS = 3000
+BOOT_LOGO_HOLD_MS = 1750   # firmware: the logo holds at least this long
+
+
+def boot_logo_in():
+    return os.path.join(project_root(), BOOT_LOGO_NAME)
+
+
+def boot_logo_out():
+    return os.path.join(project_root(), "include", "boot_logo.h")
+
+
+def validate_boot_logo(data):
+    """Validate a .mpj frame list and pack it to 3 uint32 words per frame."""
+    if not isinstance(data, list):
+        fail("%s must be a JSON array of frames" % BOOT_LOGO_NAME)
+    if not data:
+        fail("%s must hold at least one frame" % BOOT_LOGO_NAME)
+    if len(data) > BOOT_LOGO_MAX_FRAMES:
+        fail("%s: %d frames, max %d" % (BOOT_LOGO_NAME, len(data),
+                                        BOOT_LOGO_MAX_FRAMES))
+    frames = []
+    for i, f in enumerate(data):
+        where = "%s[%d]" % (BOOT_LOGO_NAME, i)
+        if not isinstance(f, dict):
+            fail("%s must be an object with 'matrix' and 'duration'" % where)
+        matrix = f.get("matrix")
+        if not isinstance(matrix, list) or len(matrix) != 8:
+            fail("%s.matrix must be 8 rows" % where)
+        for r, row in enumerate(matrix):
+            if not isinstance(row, list) or len(row) != 12:
+                fail("%s.matrix row %d must be 12 columns" % (where, r))
+            for c, v in enumerate(row):
+                if v not in (0, 1):
+                    fail("%s.matrix[%d][%d] must be 0 or 1" % (where, r, c))
+        duration = f.get("duration")
+        if not isinstance(duration, int) or not (
+                BOOT_LOGO_MIN_DURATION_MS <= duration <= BOOT_LOGO_MAX_DURATION_MS):
+            fail("%s.duration must be %d..%d ms" % (where,
+                                                    BOOT_LOGO_MIN_DURATION_MS,
+                                                    BOOT_LOGO_MAX_DURATION_MS))
+        # 8x12 -> 3 words, row-major MSB-first (same packing as the studio art)
+        words = [0, 0, 0]
+        for r in range(8):
+            for c in range(12):
+                if matrix[r][c]:
+                    bit = r * 12 + c
+                    words[bit // 32] |= 1 << (31 - (bit % 32))
+        frames.append((words, duration))
+    return frames
+
+
+def render_boot_logo(frames):
+    lines = []
+    lines.append("// GENERATED FILE — do not edit.")
+    lines.append("// Generated from %s in the repo root (LED Matrix Editor"
+                 % BOOT_LOGO_NAME)
+    lines.append("// export). Delete boot_logo.mpj to build without a boot logo.")
+    lines.append("#pragma once")
+    lines.append("")
+    lines.append("#include <Arduino.h>")
+    lines.append("")
+    lines.append("#define CONFIG_BOOT_LOGO_ENABLED 1")
+    lines.append("#define CONFIG_BOOT_LOGO_HOLD_MS %du" % BOOT_LOGO_HOLD_MS)
+    lines.append("#define CONFIG_BOOT_LOGO_FRAME_COUNT %du" % len(frames))
+    lines.append("static const uint32_t CONFIG_BOOT_LOGO_FRAMES[%du][3] = {"
+                 % len(frames))
+    for words, _ in frames:
+        lines.append("  { 0x%08xu, 0x%08xu, 0x%08xu }," % tuple(words))
+    lines.append("};")
+    lines.append("static const unsigned int CONFIG_BOOT_LOGO_FRAME_MS[%du] = {"
+                 % len(frames))
+    for _, d in frames:
+        lines.append("  %du," % d)
+    lines.append("};")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def render_boot_logo_disabled():
+    lines = []
+    lines.append("// GENERATED FILE — do not edit.")
+    lines.append("// No boot_logo.mpj in the repo root: the firmware builds")
+    lines.append("// without a boot logo. Drop a LED Matrix Editor export named")
+    lines.append("// boot_logo.mpj into the repo root and rebuild to add one.")
+    lines.append("#pragma once")
+    lines.append("")
+    lines.append("#define CONFIG_BOOT_LOGO_ENABLED 0")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def generate_boot_logo():
+    path = boot_logo_in()
+    if os.path.exists(path):
+        try:
+            with open(path, "r", encoding="utf-8-sig") as fh:
+                data = json.load(fh)
+        except ValueError as exc:
+            fail("%s is not valid JSON: %s" % (BOOT_LOGO_NAME, exc))
+        frames = validate_boot_logo(data)
+        content = render_boot_logo(frames)
+    else:
+        content = render_boot_logo_disabled()
+    out = boot_logo_out()
+    if os.path.exists(out):
+        with open(out, "r", encoding="utf-8") as fh:
+            if fh.read() == content:
+                return False   # unchanged: no rebuild churn
+    os.makedirs(os.path.dirname(out), exist_ok=True)
+    with open(out, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(content)
+    return True
+
+
 def run(config_path, out_path, verbose):
     try:
         changed = generate(config_path, out_path)
+        logo_changed = generate_boot_logo()
     except ConfigError as exc:
         # Readable error for both direct runs and pre-build failures.
         print("scene_config error: %s" % exc, file=sys.stderr)
         sys.exit(1)
     if verbose:
         print(("wrote %s" % out_path) if changed else ("%s up to date" % out_path))
+        print(("wrote %s" % boot_logo_out()) if logo_changed
+              else ("%s up to date" % boot_logo_out()))
 
 
 if globals().get("__name__", "") == "__main__":
