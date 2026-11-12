@@ -370,6 +370,7 @@ Drop an LED Matrix Editor export named `boot_logo.mpj` into the repo root and th
 - **No file → no logo** — the build is identical to before, zero overhead when absent.
 - Export `frame -> 12×8` art from the [LED Matrix Editor](https://editor.ledmatrix.arduino.cc/) (or any `.mpj`-style JSON) and save it as `boot_logo.mpj` in the repo root.
 - **Workflow:** drop `boot_logo.mpj` → `pio run` (a pre-build step validates the frames and regenerates `include/boot_logo.h`; errors point at the offending frame) → `pio run --target upload` over USB. The generated header is committed, so Arduino IDE builds work too.
+- **On Windows:** just double-click `flash.bat` in the repo root — it builds and flashes over USB in one step (picks up any new `boot_logo.mpj` or `scene_config.json` changes automatically).
 
 ---
 
@@ -377,7 +378,7 @@ Drop an LED Matrix Editor export named `boot_logo.mpj` into the repo root and th
 
 There is nothing to operate: **plug it in and wait**. Typical power-up:
 
-1. **Boots** (~2 s), tries to join WiFi (bounded to ~15 s)
+1. **Boots** (~2 s), tries to join WiFi (bounded to ~15 s) — the **boot logo** plays on the matrix during this if `boot_logo.mpj` is present
 2. **First NTP sync** attempt as soon as WiFi is up
 3. **Display starts**: WiFi + sync both OK → real time and the full 7-page cycle; WiFi up but no sync yet → blinking `SYNC`; WiFi down → the looping **NO WIFI banner**
 
@@ -403,7 +404,9 @@ After a sync the display shows:
 ```
 arduino_uno_r4_wificlock/
 ├── platformio.ini              # Build configuration (+ scene_config.h pre-build hook)
+├── flash.bat                   # Windows: one-click build + USB flash (new boot logos / configs)
 ├── scene_config.json           # Display sequence + page timing + scene schedule (source of truth)
+├── boot_logo.mpj               # Boot logo source of truth (LED Matrix Editor export; no file → no logo)
 ├── LICENSE                     # MIT license for this project's code
 ├── NOTICE                      # Third-party component notices
 ├── src/
@@ -412,7 +415,8 @@ arduino_uno_r4_wificlock/
 │   ├── secrets.h              # Your credentials (gitignored, NEVER commit)
 │   ├── secrets.example.h      # Template for all config fields
 │   ├── glyphFonts.h           # All glyph data: compact 5×3 (digits, A-Z, space, colon, dash, !) + large 7×5 (digits, A-Z)
-│   └── scene_config.h         # GENERATED from scene_config.json — edit the JSON, not this
+│   ├── scene_config.h         # GENERATED from scene_config.json — edit the JSON, not this
+│   └── boot_logo.h            # GENERATED from boot_logo.mpj — edit the .mpj, not this
 ├── lib/
 │   └── DimmableR4Matrix/      # Patched fork of the bundled LED matrix driver with brightness control (MIT, © Arduino SA — see its README)
 ├── tools/                      # Dev utilities (config generator, driver generator, font checks, README art generator)
@@ -517,6 +521,7 @@ DST boundaries follow the US rule: **2:00 AM on the 2nd Sunday of March → 2:00
 
 ```
 UNO R4 WiFi Smart Clock
+Boot logo: playing while the radio connects...
 Connecting to WiFi...
 Connecting to: Your_WiFi_Name
 [WiFi] Connected
@@ -527,6 +532,8 @@ Time synchronized: 09:05:00
 Setup complete. Entering state machine...
 State: TIME_DISPLAY
 ```
+
+(The `Boot logo:` line only appears when `boot_logo.mpj` is present — the logo plays on the matrix during the connect wait.)
 
 At 22:00 the same log line shows `[Dim] night dim 15% at hour 22` (and back to full brightness at 06:00).
 
