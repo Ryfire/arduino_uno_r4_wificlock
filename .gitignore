@@ -14,3 +14,10 @@ Desktop.ini
 # Python (tools/)
 __pycache__/
 *.pyc
+
+# Generated design-review output (python tools/preview*_*.py)
+scene_preview.html
+preview_all.html
+scene_preview*.png
+preview_all*.png
+.playwright-mcp/
