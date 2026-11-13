@@ -358,13 +358,21 @@ int scrollPos = 0;                // current window offset
 unsigned long lastScrollTick = 0;
 
 // ===== Eye animation state =====
-enum EyePose { EYE_CENTER, EYE_LEFT, EYE_RIGHT, EYE_BLINK };
-// Two eyes: center rest, look left/right, then blink once. The show
+enum EyeGaze { EYE_CENTER, EYE_LEFT, EYE_RIGHT };
+enum EyeLid { EYE_LID_OPEN, EYE_LID_LOWERED, EYE_LID_CLOSED };
+// Two eyes: a wide-eyed rest, the lids droop a bit, the eyes glance
+// left/right while still droopy, then one quick blink before opening
+// wide again — so the face isn't permanently wide-eyed. The show
 // loops for the whole phase; the page plays every Nth cycle (eye step's
 // every_n_cycles in scene_config.json).
-const uint8_t EYE_SEQ[] = {
-  EYE_CENTER, EYE_LEFT, EYE_RIGHT, EYE_CENTER,
-  EYE_BLINK, EYE_CENTER
+struct EyeStep { uint8_t gaze; uint8_t lid; };
+const EyeStep EYE_SEQ[] = {
+  { EYE_CENTER,   EYE_LID_OPEN    },   // wide-eyed rest
+  { EYE_CENTER,   EYE_LID_LOWERED },   // lids droop a bit
+  { EYE_LEFT,     EYE_LID_LOWERED },   // glance left, still droopy
+  { EYE_RIGHT,    EYE_LID_LOWERED },   // glance right, still droopy
+  { EYE_CENTER,   EYE_LID_CLOSED  },   // blink (one-row seam)
+  { EYE_CENTER,   EYE_LID_OPEN    }    // open wide again
 };
 const int EYE_SEQ_LEN = sizeof(EYE_SEQ) / sizeof(EYE_SEQ[0]);
 int eyeStep = 0;                  // index into EYE_SEQ
@@ -909,7 +917,7 @@ void advancePhase() {
   DisplayPhase next = (DisplayPhase)SCENE_SEQUENCE[nextIdx].phase;
 
   // The eye is a periodic page: only run it every Nth cycle. The count
-  // still increments on the skip, so "every 5th cycle" holds. A skipped
+  // still increments on the skip, so "every Nth cycle" holds. A skipped
   // eye falls back to the TIME page, whose duration then applies.
   if (next == PHASE_EYE) {
     cycleCount++;
@@ -1722,8 +1730,8 @@ void displayNoWifiWarning() {
 // Two "0" glyphs (largeDigits[0]) at the minutes-page positions:
 // left eye cols 0-4, right eye cols 7-11, rows 0-6. Indicator pixels
 // ([0][5],[0][6],[1][5]) live in the gap between the eyes.
-// Pupil: 1-wide x 2-tall vertical pill inside each eye's 3-wide interior;
-// center rest, look left/right, then a blink.
+// Pupil: a single pixel inside each eye's 3-wide interior; center rest,
+// glance left/right, lids that droop a little before a one-row blink.
 void drawEyes() {
   for (int r = 0; r < 7; r++) {
     for (int c = 0; c < 5; c++) {
@@ -1733,23 +1741,26 @@ void drawEyes() {
   }
 }
 
-void drawEyePupils(int pose) {
+void drawEyePupils(int gaze) {
   // pupil col offset within each eye's 3-wide interior (cols 1-3)
   int pcol;
-  switch (pose) {
+  switch (gaze) {
     case EYE_LEFT:   pcol = 1; break;
     case EYE_RIGHT:  pcol = 3; break;
     default:         pcol = 2; break;   // CENTER
   }
-  for (int r = 3; r <= 4; r++) {
-    frame[r][pcol] = 1;       // left eye
-    frame[r][pcol + 7] = 1;   // right eye
-  }
+  // One pixel at row 4 in every state: low enough to sit centred in the
+  // opening a drooped lid leaves (rows 3-5), and it never jumps when the
+  // lids drop.
+  frame[4][pcol] = 1;       // left eye
+  frame[4][pcol + 7] = 1;   // right eye
 }
 
-void drawEyeLids() {
-  // Blink: horizontal bar across the middle of each eye
-  for (int r = 3; r <= 4; r++) {
+// Lids lowered a bit: the top two rows of each eye's interior (rows 1-2)
+// fill in, leaving rows 3-5 open — a relaxed, half-lidded look instead
+// of the usual wide-eyed stare.
+void drawEyeLidsLowered() {
+  for (int r = 1; r <= 2; r++) {
     for (int c = 1; c <= 3; c++) {
       frame[r][c] = 1;       // left eye
       frame[r][c + 7] = 1;   // right eye
@@ -1757,11 +1768,23 @@ void drawEyeLids() {
   }
 }
 
+// Blink: a single horizontal seam across the middle of each eye's
+// interior (row 3). The pupil is hidden for this step.
+void drawEyeLids() {
+  for (int c = 1; c <= 3; c++) {
+    frame[3][c] = 1;       // left eye
+    frame[3][c + 7] = 1;   // right eye
+  }
+}
+
 void displayEye() {
   const PhaseStep* cfg = stepFor(GEN_PHASE_EYE);
   unsigned long poseMs = cfg ? cfg->stepMs : 700;
   unsigned long blinkMs = cfg ? cfg->blinkMs : 400;
-  unsigned long stepMs = (EYE_SEQ[eyeStep] == EYE_BLINK) ? blinkMs : poseMs;
+
+  // Closed-lid steps get the short blink hold, every other pose the
+  // normal step hold.
+  unsigned long stepMs = (EYE_SEQ[eyeStep].lid == EYE_LID_CLOSED) ? blinkMs : poseMs;
   if (millis() - lastEyeStep >= stepMs) {
     lastEyeStep = millis();
     eyeStep++;
@@ -1770,11 +1793,13 @@ void displayEye() {
 
   clearFrame();
 
+  const EyeStep step = EYE_SEQ[eyeStep];
   drawEyes();
-  if (EYE_SEQ[eyeStep] == EYE_BLINK) {
+  if (step.lid == EYE_LID_CLOSED) {
     drawEyeLids();
   } else {
-    drawEyePupils(EYE_SEQ[eyeStep]);
+    if (step.lid == EYE_LID_LOWERED) drawEyeLidsLowered();
+    drawEyePupils(step.gaze);
   }
 
   drawIndicators();

@@ -202,13 +202,16 @@ for name in ("MONDAY", "WEDNESDAY"):
 
 # ===== Two-eyed face (intermittent) =====
 
-def face_frame(pupil):
-    """Two largeDigits[0] "0" glyphs at cols 0-4 / 7-11, rows 0-6.
+def face_frame(pupil=None, lowered=False):
+    """Replicates drawEyes/drawEyePupils/drawEyeLidsLowered/drawEyeLids
+    exactly: two largeDigits[0] "0" glyphs at cols 0-4 / 7-11, rows 0-6.
     pupil: col offset within each eye's 3-wide interior
-           (1=LEFT, 2=CENTER, 3=RIGHT); a 1-wide x 2-tall vertical
-           pill at rows 3-4.
-    pupil=None means blink: 2-row x 3-col bar across each eye's
-    interior (rows 3-4, cols 1-3 / 8-10)."""
+           (1=LEFT, 2=CENTER, 3=RIGHT); a single px at row 4 in both
+           states, so it never jumps when the lids droop.
+    lowered=True fills the interior's top two rows (rows 1-2) with the
+    drooped lid, leaving rows 3-5 open.
+    pupil=None means blink: a single seam across each eye's interior
+    (row 3)."""
     f = [[0] * 12 for _ in range(8)]
     glyph = LARGE['0']
     for r in range(7):
@@ -216,23 +219,28 @@ def face_frame(pupil):
             f[r][c] = int(glyph[r][c])         # left eye
             f[r][c + 7] = int(glyph[r][c])     # right eye
     if pupil is None:
-        # drawEyeLids: 2-row x 3-col bar across each eye's interior
-        for r in range(3, 5):
-            for c in range(1, 4):
-                f[r][c] = 1
-                f[r][c + 7] = 1
+        # drawEyeLids: one row across each eye's interior
+        for c in range(1, 4):
+            f[3][c] = 1
+            f[3][c + 7] = 1
     else:
-        # drawEyePupils: 1-wide x 2-tall vertical pill at rows 3-4
-        for r in range(3, 5):
-            f[r][pupil] = 1
-            f[r][pupil + 7] = 1
+        if lowered:
+            # drawEyeLidsLowered: interior rows 1-2
+            for r in (1, 2):
+                for c in range(1, 4):
+                    f[r][c] = 1
+                    f[r][c + 7] = 1
+        # drawEyePupils: one px at row 4
+        f[4][pupil] = 1
+        f[4][pupil + 7] = 1
     return f
 
 
 show('FACE center (pupil mid)', face_frame(2))
-show('FACE left (pupil left)', face_frame(1))
-show('FACE right (pupil right)', face_frame(3))
-show('FACE blink (closed)', face_frame(None))
+show('FACE lids lowered (pupil mid)', face_frame(2, lowered=True))
+show('FACE left (pupil left, lids lowered)', face_frame(1, lowered=True))
+show('FACE right (pupil right, lids lowered)', face_frame(3, lowered=True))
+show('FACE blink (one-row seam)', face_frame(None))
 
 
 # ===== Static image art (SCENE_STYLE=1 -> SCENE_ART in main.cpp) =====

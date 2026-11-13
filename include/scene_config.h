@@ -47,7 +47,7 @@ const PhaseStep SCENE_SEQUENCE[] = {
   { GEN_PHASE_YEAR,       7000, true,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },   // year
   { GEN_PHASE_DAY,        7000, true,  0, 0, 0, 0, 0, 0, 90, 0, 0, 0, 0, 0, 0 },   // day
   { GEN_PHASE_WIFI,       7000, true,  0, 0, 0, 0, 0, 0, 0, 0, 350, 600, 900, 1600, 500 },   // wifi
-  { GEN_PHASE_EYE,        7000, true,  5, 400, 0, 0, 0, 0, 0, 700, 0, 0, 0, 0, 0 },   // eye
+  { GEN_PHASE_EYE,        7000, true,  3, 400, 0, 0, 0, 0, 0, 700, 0, 0, 0, 0, 0 },   // eye
 };
 const uint8_t SCENE_SEQUENCE_LEN = sizeof(SCENE_SEQUENCE) / sizeof(SCENE_SEQUENCE[0]);
 

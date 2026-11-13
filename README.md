@@ -9,7 +9,7 @@ A WiFi-enabled digital clock using the Arduino UNO R4 WiFi's built-in 8×12 LED 
 ## Features
 
 - **Real-Time Clock**: NTP-synced (3 fallback servers) with automatic **US daylight saving** (2nd Sun Mar → 1st Sun Nov) — never needs seasonal editing
-- **7-Page Rotating Display**: time → large minutes → date → year → day-name scroll → WiFi signal, each page held 7 seconds, plus a **two-eyed face** every 5th cycle
+- **7-Page Rotating Display**: time → large minutes → date → year → day-name scroll → WiFi signal, each page held 7 seconds, plus a **two-eyed face** every 3rd cycle
 - **JSON-Configurable Flow**: the page order, per-page durations, per-page animation timing (date flip cycle, scroll speed, WiFi pacing, eye timing), and the scene schedule live in `scene_config.json` — edit, rebuild, flash; no code changes needed
 - **Night Dimming**: the whole matrix instantly drops to 15% brightness at 22:00 and back to 100% at 06:00 — no ramp, DST-aware local time, all via `#ifndef` constants
 - **Sweep Transitions**: pages wipe in column-by-column from the right edge (~0.5 s) instead of hard-cuts; the date page drops its month in from the top instead
@@ -263,23 +263,23 @@ Not one of the timed pages: whenever the WiFi connection is down — at boot or 
 
 The moment WiFi reconnects, the normal page cycle resumes automatically. Timing knobs: `WARN_X_ON_MS` / `WARN_X_OFF_MS` / `WARN_X_FLASHES` for the flash phase and `WARN_SCROLL_MS` for the marquee speed.
 
-### 7. Two-eyed face (every 5th cycle, ~5 s)
+### 7. Two-eyed face (every 3rd cycle, ~5 s)
 
-After the WiFi page, a two-eyed face appears — two "0" glyphs filling the whole height, with a 1-wide × 2-tall vertical pill pupil inside each. The pupils look left, then right, from a center rest, then the eyes blink closed briefly. It plays once every 5th full cycle (~every 4 minutes) and simply doesn't appear in the other four cycles.
+After the WiFi page, a two-eyed face appears — two "0" glyphs filling the whole height, each with a single-pixel pupil sitting low in its interior. The show starts wide-eyed, then the lids droop a little (the top of each eye's interior fills in, so only the opening below still holds the pupil), the eyes glance left and right while still droopy, and only then do they blink — a single seam across the middle — before opening wide again. It plays once every 3rd full cycle (~every 2 minutes) and simply doesn't appear in the other two cycles.
 
 ```
-   center        left         right        blink
-.###....###.  .###....###.  .###....###.  .###....###.
-#...#..#...#  #...#..#...#  #...#..#...#  #...#..#...#
-#...#..#...#  #...#..#...#  #...#..#...#  #...#..#...#
-#.#.#..#.#.#  ##..#..##..#  #..##..#..##  #####..#####
-#.#.#..#.#.#  ##..#..##..#  #..##..#..##  #####..#####
-#...#..#...#  #...#..#...#  #...#..#...#  #...#..#...#
-.###....###.  .###....###.  .###....###.  .###....###.
-............  ............  ............  ............
+   center        droopy         left         right         blink
+.###....###.  .###....###.  .###....###.  .###....###.  .###....###.
+#...#..#...#  #####..#####  #####..#####  #####..#####  #...#..#...#
+#...#..#...#  #####..#####  #####..#####  #####..#####  #...#..#...#
+#...#..#...#  #...#..#...#  #...#..#...#  #...#..#...#  #####..#####
+#.#.#..#.#.#  #.#.#..#.#.#  ##..#..##..#  #..##..#..##  #...#..#...#
+#...#..#...#  #...#..#...#  #...#..#...#  #...#..#...#  #...#..#...#
+.###....###.  .###....###.  .###....###.  .###....###.  .###....###.
+............  ............  ............  ............  ............
 ```
 
-The pupils are drawn in the middle column of each eye's interior, then shifted one column left and one column right for the left/right poses, then closed with a full interior bar. If the `EYE_EVERY_N_CYCLES` constant is set to `0`, the face is disabled and the cycle stays at six pages.
+The pupil is a single pixel in the middle column of each eye's interior, always at row 4 — centred in the opening a drooped lid leaves (rows 3-5), so it never jumps when the lids drop — and the left/right poses shift it a column either side. The blink hides it behind a single-row seam across the middle of each eye. Setting the eye step's `every_n_cycles` to `0` in `scene_config.json` disables the face entirely, and the cycle stays at six pages.
 
 ### Page-identity cheat sheet
 
@@ -293,7 +293,7 @@ The pupils are drawn in the middle column of each eye's interior, then shifted o
 | A word in large letters scrolling across the screen | **Day-name scroll** |
 | A fan builds up, a number counts up from −100, then number and fan alternate | **WiFi signal** |
 | Full-screen X flashing, then NO WIFI scrolling, in a loop | **WiFi loss banner (override)** |
-| A two-eyed face with pupils looking around, blinking every ~4 min | **Two-eyed face** |
+| A two-eyed face whose lids droop, pupils glance around, then blink every ~2 min | **Two-eyed face** |
 
 ### On-Screen Status Indicators
 
