@@ -140,12 +140,17 @@ The scenes are procedural (drawn by the same frame pipeline as every other page)
 |-------|----------|
 | `2` | **Animated scenes** (default) — motion, twinkles, drifting clouds |
 | `1` | **Static image art** — one purpose-drawn still per bucket (`SCENE_ART`), every star lit and every ray on |
+| `4` | **Simple animated set** — bolder keyframe art generated from `tools/scene_art_draft.py` (`include/simple_scenes.h`) |
+| `5` | **Simple stills** — the matching stills of the simple set |
+| `6` | **Mixed preset** — each bucket plays its own flavor from `SCENE_MIX` (generated from `tools/scene_mix.py`) |
 | `0` | **No intro** — the time page wipes straight to the clock |
+
+**Building your own mix** — `tools/preview_all_styles.py` renders every bucket in every style to one offline page (`preview_all.html`): click a winner per bucket, copy the generated config into `tools/scene_mix.py`, then set `SCENE_STYLE 6` in `secrets.h`. The mix is compiled in at build time — no runtime editing.
 
 To change the style, add (or uncomment) one line in `include/secrets.h` — the default in `main.cpp` is only used when `secrets.h` doesn't define it:
 
 ```cpp
-#define SCENE_STYLE 1   // 1 = static image art — or 2 = animated (default), 0 = no intro
+#define SCENE_STYLE 1   // 1 = static image art — or 2 = animated (default), 6 = mixed, 0 = no intro
 ```
 
 Then rebuild and flash as usual; the new style applies from the next visit to the time page. `secrets.example.h` ships with the same line commented out as a reminder.

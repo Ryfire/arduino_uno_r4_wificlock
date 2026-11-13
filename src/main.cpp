@@ -38,6 +38,9 @@
 // tools/generate_scene_config.py, which runs automatically before every
 // build (see platformio.ini). Edit the JSON, never this file's twin.
 #include "scene_config.h"
+// Simple time-of-day art set (SCENE_STYLE 4/5) — GENERATED from
+// tools/scene_art_draft.py by tools/generate_simple_scenes.py (pre-build).
+#include "simple_scenes.h"
 #include "boot_logo.h"
 
 // ===== WiFi Configuration =====
@@ -116,7 +119,9 @@ const unsigned long WIFI_CONNECT_TIMEOUT = 15000; // per-attempt timeout (ms)
 // ===== Time-of-day scene intro (TIME page) =====
 // A short vignette plays at the start of every TIME visit before the clock
 // is revealed. SCENE_STYLE picks the flavor (override in secrets.h):
-//   2 = animated scenes | 1 = static image art | 0 = no intro
+//   2 = animated scenes  | 4 = simple animated set | 5 = simple stills
+//   6 = mixed preset — each bucket plays its own flavor from SCENE_MIX
+//   1 = static image art | 0 = no intro
 // SCENE_FORCE is the bench-preview hook: -1 follows the clock's hour,
 // 0-5 forces one scene, 6 cycles all six per visit.
 // SCENE_INTRO_MS, the style default, and the hour->scene schedule all live
@@ -392,6 +397,8 @@ void display4Chars(const char* text);
 void displayTime(int hours, int minutes);
 void displayScene(unsigned long elapsed);
 void displaySceneArt();
+void displaySimpleAnim(unsigned long elapsed);
+void displaySimpleArt();
 SceneKind pickScene();
 void displayMinutesLarge(int minutes);
 void displayDate();
@@ -954,17 +961,19 @@ void renderDisplayPhase() {
     case PHASE_TIME: {
       // Scene intro first: the vignette runs for SCENE_INTRO_MS, then one
       // sweep wipes the scene frame away to reveal the clock underneath.
-      // SCENE_STYLE picks the flavor (see the constants block):
-      //   0 = no intro (the page-entry sweep already revealed the clock)
-      //   1 = static image art, held still      2 = animated scenes
+      // SCENE_STYLE picks the flavor (see the constants block); 6 = mixed
+      // preset, where each bucket plays its own SCENE_MIX flavor.
 #if SCENE_STYLE != 0
       unsigned long sceneEl = millis() - sceneStart;
       if (sceneEl < SCENE_INTRO_MS) {
-#if SCENE_STYLE == 1
-        displaySceneArt();
-#else
-        displayScene(sceneEl);
-#endif
+        const uint8_t flavor = (SCENE_STYLE == 6) ? SCENE_MIX[sceneKind]
+                                                  : (uint8_t)SCENE_STYLE;
+        switch (flavor) {
+          case 1:  displaySceneArt();          break;   // classic still
+          case 4:  displaySimpleAnim(sceneEl); break;   // simple animated
+          case 5:  displaySimpleArt();         break;   // simple still
+          default: displayScene(sceneEl);      break;   // 2 = classic animated
+        }
         break;
       }
       if (!sceneRevealed) {
@@ -1241,6 +1250,42 @@ void displayScene(unsigned long elapsed) {
 void displaySceneArt() {
   clearFrame();
   memcpy(frame, SCENE_ART[sceneKind], sizeof(frame));
+  renderFrame();
+}
+
+// ===== Simple art set (SCENE_STYLE 4/5) =====
+// Generated from tools/scene_art_draft.py (dash-ray suns, crescent + stars,
+// horizon motifs). 4 = keyframe animations — looping scenes wrap, play-once
+// scenes hold their last frame until the intro ends, like custom art does.
+// 5 = the matching stills, held for the whole intro window.
+
+static void unpackSimpleRows(const uint16_t rows[8]) {
+  for (int r = 0; r < 8; r++) {
+    uint16_t bits = rows[r];
+    for (int c = 0; c < 12; c++) frame[r][c] = (bits >> (11 - c)) & 1;
+  }
+}
+
+void displaySimpleAnim(unsigned long elapsed) {
+  const SimpleScene& sc = SIMPLE_SCENES[sceneKind];
+  unsigned long total = 0;
+  for (uint8_t i = 0; i < sc.frameCount; i++) total += sc.frames[i].durationMs;
+  unsigned long t = sc.loop ? (elapsed % total)
+                            : (elapsed < total ? elapsed : total - 1);
+  uint8_t idx = sc.frameCount - 1;   // play-once hold: last frame
+  unsigned long acc = 0;
+  for (uint8_t i = 0; i < sc.frameCount; i++) {
+    acc += sc.frames[i].durationMs;
+    if (t < acc) { idx = i; break; }
+  }
+  clearFrame();
+  unpackSimpleRows(sc.frames[idx].rowBits);
+  renderFrame();
+}
+
+void displaySimpleArt() {
+  clearFrame();
+  unpackSimpleRows(SIMPLE_ART[sceneKind]);
   renderFrame();
 }
 
