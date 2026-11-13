@@ -71,7 +71,7 @@ const char* password = WIFI_PASSWORD;
 #define DIM_END_HOUR 6
 #endif
 #ifndef DIM_NIGHT_PERCENT
-#define DIM_NIGHT_PERCENT 15
+#define DIM_NIGHT_PERCENT 40
 #endif
 #ifndef DIM_DAY_PERCENT
 #define DIM_DAY_PERCENT 100
