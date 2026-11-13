@@ -87,11 +87,17 @@ put_compact(f, '0', 2)
 put_compact(f, '8', 7)
 show('DATE day half "08"', f)
 
-# Year "26": chars at cols 2,7
+# Year "26": chars at cols 2,7, inside a 1-px border on the top row and
+# both side columns (displayYear's drawBorder); the bottom row stays open
 f = blank()
 put_compact(f, '2', 2)
 put_compact(f, '6', 7)
-show('YEAR "2 6"', f)
+for c in range(12):
+    f[0][c] = 1
+for r in range(8):
+    f[r][0] = 1
+    f[r][11] = 1
+show('YEAR "2 6" (bordered)', f)
 
 # WiFi page "-57": 2-px minus bar at row 4 cols 0-1, 2-col gap, digits at
 # cols 4 and 8 with a 1-col space between them (displayWifiRssi layout)

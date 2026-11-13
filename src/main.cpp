@@ -426,6 +426,7 @@ const PhaseStep* stepFor(uint8_t phase) {
 void stampCompactGlyph(char c, int startCol, int rowOffset);
 void drawDatePair(int value, int rowOffset);
 void drawSlash();
+void drawBorder();
 int getDayOfWeek();
 void buildDayScroll(const char* name);
 void clearDisplay();
@@ -1460,6 +1461,22 @@ void drawDatePair(int value, int rowOffset) {
   stampCompactGlyph('0' + value % 10, 7, rowOffset);
 }
 
+// 1-px border on the top row and both side columns (year page frame). The
+// bottom row stays open: the digits rest on it, so lighting it would read
+// as one contiguous block with their bottom edge. The interior still fits
+// the 3x5 compact digits in their shared slots. The top border also
+// occupies row 0 col 6, so the stale-sync dot from drawIndicators() is
+// indistinguishable during this page — it still reads on every other page.
+void drawBorder() {
+  for (int c = 0; c < 12; c++) {
+    frame[0][c] = 1;
+  }
+  for (int r = 0; r < 8; r++) {
+    frame[r][0] = 1;
+    frame[r][11] = 1;
+  }
+}
+
 void displayYear() {
   clearFrame();
 
@@ -1474,6 +1491,7 @@ void displayYear() {
   renderCompactChar(yearStr[0], 2);
   renderCompactChar(yearStr[1], 7);
 
+  drawBorder();
   drawIndicators();
   renderFrame();
 }

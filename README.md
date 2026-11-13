@@ -191,17 +191,17 @@ Both halves use the **same full-size digits as the time page**, at the same cent
 
 ### 4. Year page (7 s)
 
-Two-digit year, centered with a gap:
+Two-digit year, centered with a gap, inside a 1-pixel frame on the top row and side columns (the bottom row stays open so the digits don't merge into it):
 
 ```
-............
-............
-..###..###..
-....#..#....
-..###..###..
-..#....#.#..
-..###..###..
-............
+############
+#..........#
+#.###..###.#
+#...#..#...#
+#.###..###.#
+#.#....#.#.#
+#.###..###.#
+#..........#
      "2 6"
 ```
 
@@ -289,7 +289,7 @@ The pupils are drawn in the middle column of each eye's interior, then shifted o
 | A tiny landscape — moon, rising/sinking sun, stars — then it wipes to the clock | **Time page scene intro** (first ~2.5 s of the Time page) |
 | Huge digits filling the whole height | **Minutes** |
 | A 2-digit number that drops in from the top, holds 3 s, then flips every ~350 ms | **Date** |
-| `2 6`-style pair, static, centered | **Year** |
+| `2 6`-style pair, static, centered, framed | **Year** |
 | A word in large letters scrolling across the screen | **Day-name scroll** |
 | A fan builds up, a number counts up from −100, then number and fan alternate | **WiFi signal** |
 | Full-screen X flashing, then NO WIFI scrolling, in a loop | **WiFi loss banner (override)** |
@@ -303,6 +303,8 @@ Small pixels in the top rows that no page ever uses:
 |-------|---------|
 | Top row, right of center — **solid** | Stale: no successful sync for over 1 hour (time is drifting) |
 | Second row, left of center — **blinking** | 24-hour mode only: replaces the colon |
+
+The year page's frame covers the whole top row, so the stale pixel is hidden for the 7 s that page is up — it reads normally on every other page.
 
 ---
 
